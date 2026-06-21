@@ -1,0 +1,16 @@
+# Logs
+logs/
+
+# Export directories
+os-info/
+cpu-info/
+memory-info/
+disk-info/
+battery-info/
+network-info/
+
+# Task logs and project guides
+TASKS.md
+task.md
+project.md
+sysinspector/project.md

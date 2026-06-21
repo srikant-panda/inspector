@@ -104,7 +104,7 @@ function safe(fn, fallback = 'N/A') {
  * Only these env vars are considered safe to expose.
  * Anything outside this list (API keys, tokens, DB passwords …) is silently dropped.
  */
-const ENV_WHITELIST = [
+const SAFE_ENV_KEYS = [
   'USER',
   'USERNAME',
   'HOME',
@@ -116,6 +116,29 @@ const ENV_WHITELIST = [
   'EDITOR',
   'NODE_ENV',
 ];
+
+const ENV_WHITELIST = SAFE_ENV_KEYS;
+
+const SECRET_PATTERNS = [
+  /secret/i, /token/i, /password/i, /passwd/i, /api[_-]?key/i,
+  /credential/i, /private[_-]?key/i, /auth/i, /access[_-]?key/i,
+];
+
+function looksSecret(keyName) {
+  return SECRET_PATTERNS.some((pattern) => pattern.test(keyName));
+}
+
+function getEnvSnapshot() {
+  const snapshot = {};
+  for (const key of SAFE_ENV_KEYS) {
+    if (looksSecret(key)) {
+      snapshot[key] = '[REDACTED]';
+      continue;
+    }
+    snapshot[key] = process.env[key] !== undefined ? process.env[key] : 'N/A';
+  }
+  return snapshot;
+}
 
 function getCpuUsage() {
   const start = os.cpus();
@@ -172,12 +195,7 @@ function gatherSystemInfo(options = {}) {
     : 'N/A';
 
   // Env — whitelist only
-  const env = {};
-  for (const key of ENV_WHITELIST) {
-    if (process.env[key] !== undefined) {
-      env[key] = process.env[key];
-    }
-  }
+  const env = getEnvSnapshot();
 
   return {
     timestamp: safe(() => new Date().toISOString()),
@@ -425,4 +443,13 @@ function _gatherBatteryInfoRaw() {
   }
 }
 
-module.exports = { gatherSystemInfo, gatherDiskInfo, gatherBatteryInfo, execWithTimeout };
+module.exports = {
+  gatherSystemInfo,
+  gatherDiskInfo,
+  gatherBatteryInfo,
+  execWithTimeout,
+  getEnvSnapshot,
+  SAFE_ENV_KEYS,
+  ENV_WHITELIST,
+  looksSecret
+};
