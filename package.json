@@ -1,0 +1,14 @@
+{
+  "name": "glassbox",
+  "version": "1.0.0",
+  "description": "GlassBox — A modular Node.js dev-utility suite (Thunder Hackathon 3.0)",
+  "main": "sysinspector/src/index.js",
+  "scripts": {
+    "start": "node sysinspector/src/index.js",
+    "info": "node sysinspector/src/index.js info",
+    "info:json": "node sysinspector/src/index.js info --json"
+  },
+  "keywords": ["cli", "dev-tool", "system-info", "sandbox", "modular"],
+  "author": "",
+  "license": "MIT"
+}

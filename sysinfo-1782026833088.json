@@ -1,0 +1,35 @@
+{
+  "timestamp": "2026-06-21T07:27:13.088Z",
+  "os": {
+    "type": "Linux",
+    "platform": "linux",
+    "release": "7.0.12-201.fc44.x86_64",
+    "arch": "x64"
+  },
+  "hostname": "fedora",
+  "nodeVersion": "v24.16.0",
+  "uptimeSeconds": 10077.15,
+  "homedir": "/home/hariomm",
+  "cwd": "/home/hariomm/Projects/hackthon/GlassBox",
+  "cpu": {
+    "model": "AMD Ryzen 5 7530U with Radeon Graphics",
+    "cores": 12,
+    "speedMHz": 4141
+  },
+  "memory": {
+    "totalMB": 15352,
+    "freeMB": 10105.11,
+    "usedPercent": 34.18
+  },
+  "env": {
+    "USER": "hariomm",
+    "USERNAME": "hariomm",
+    "HOME": "/home/hariomm",
+    "SHELL": "/bin/bash",
+    "LANG": "en_US.UTF-8",
+    "PATH": "/home/hariomm/Projects/hackthon/GlassBox/node_modules/.bin:/home/hariomm/Projects/hackthon/node_modules/.bin:/home/hariomm/Projects/node_modules/.bin:/home/hariomm/node_modules/.bin:/home/node_modules/.bin:/node_modules/.bin:/home/hariomm/.nvm/versions/node/v24.16.0/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/node-gyp-bin:/home/hariomm/.local/bin:/home/hariomm/.local/bin:/home/hariomm/.local/bin:/home/hariomm/.local/bin:/home/hariomm/.local/bin:/home/hariomm/.nvm/versions/node/v24.16.0/bin:/home/hariomm/.local/bin:/home/hariomm/bin:/usr/local/bin:/usr/bin",
+    "TERM": "xterm-256color",
+    "PWD": "/home/hariomm/Projects/hackthon/GlassBox",
+    "EDITOR": "/usr/bin/nano"
+  }
+}
