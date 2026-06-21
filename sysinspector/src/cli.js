@@ -477,17 +477,48 @@ async function startInteractiveMenu({ dir }) {
       case 'os-info': {
         const info = gatherSystemInfo();
         let output = showOsInfo(info);
+        
+        // Append full details
+        output += '\n\n  ' + color.bold(color.cyan('📁 Additional OS & Env Details')) + '\n';
+        output += '  ' + '─'.repeat(45) + '\n';
+        output += `  ${color.bold('CWD:')}        ${info.cwd}\n`;
+        output += `  ${color.bold('Timestamp:')}  ${info.timestamp}\n\n`;
+        output += `  ${color.bold('🔑 Environment Variables:')}\n`;
+        for (const [key, val] of Object.entries(info.env)) {
+          const displayVal = key === 'PATH' && val.length > 60 ? val.slice(0, 57) + '...' : val;
+          output += `    ${color.green(key.padEnd(10))} ${displayVal}\n`;
+        }
+
         const exportDir = path.join(fileOps.root, 'os-info');
         ensureDir(exportDir);
         fs.writeFileSync(path.join(exportDir, 'os-info.json'), JSON.stringify(info, null, 2), 'utf8');
         fs.writeFileSync(path.join(exportDir, 'os-info.html'), renderInfoHtml('OS Info', info), 'utf8');
-        output += '\n' + color.green('\n  ✔ Full details exported to os-info/os-info.json and os-info/os-info.html');
+        output += '\n' + color.green('  ✔ Full details exported to os-info/os-info.json and os-info/os-info.html');
         return output;
       }
 
       case 'cpu-info': {
         const info = gatherSystemInfo();
         let output = showCpuInfo(info);
+
+        // Append full details
+        output += '\n\n  ' + color.bold(color.cyan('🧠 Detailed CPU Core Info')) + '\n';
+        output += '  ' + '─'.repeat(45) + '\n';
+        const cpus = os.cpus();
+        if (Array.isArray(cpus) && cpus.length > 0) {
+          output += `  ${color.bold('Core count:')} ${cpus.length}\n`;
+          output += `  ${color.bold('Speeds by core:')}\n`;
+          const limit = Math.min(cpus.length, 8);
+          for (let i = 0; i < limit; i++) {
+            output += `    Core ${i}: ${color.green(cpus[i].speed + ' MHz')} - ${cpus[i].model.trim()}\n`;
+          }
+          if (cpus.length > limit) {
+            output += `    ... and ${cpus.length - limit} more cores\n`;
+          }
+        } else {
+          output += '  Core details not available.\n';
+        }
+
         const exportDir = path.join(fileOps.root, 'cpu-info');
         ensureDir(exportDir);
         const cpuData = {
@@ -500,40 +531,124 @@ async function startInteractiveMenu({ dir }) {
         };
         fs.writeFileSync(path.join(exportDir, 'cpu-info.json'), JSON.stringify(cpuData, null, 2), 'utf8');
         fs.writeFileSync(path.join(exportDir, 'cpu-info.html'), renderInfoHtml('CPU Info', cpuData), 'utf8');
-        output += '\n' + color.green('\n  ✔ Full details exported to cpu-info/cpu-info.json and cpu-info/cpu-info.html');
+        output += '\n' + color.green('  ✔ Full details exported to cpu-info/cpu-info.json and cpu-info/cpu-info.html');
         return output;
       }
 
       case 'memory-info': {
         const info = gatherSystemInfo();
         let output = showMemoryInfo(info);
+
+        // Append full details
+        const totalBytes = os.totalmem();
+        const freeBytes = os.freemem();
+        const usedBytes = totalBytes - freeBytes;
+        output += '\n\n  ' + color.bold(color.cyan('📊 Raw Memory Allocation')) + '\n';
+        output += '  ' + '─'.repeat(45) + '\n';
+        output += `  ${color.bold('Total Bytes:')} ${totalBytes.toLocaleString()} B\n`;
+        output += `  ${color.bold('Free Bytes:')}  ${freeBytes.toLocaleString()} B\n`;
+        output += `  ${color.bold('Used Bytes:')}  ${usedBytes.toLocaleString()} B\n`;
+        output += `  ${color.bold('Load Average (1m, 5m, 15m):')} ${info.loadAvg !== 'N/A' ? info.loadAvg.join(', ') : 'N/A'}\n`;
+
         const exportDir = path.join(fileOps.root, 'memory-info');
         ensureDir(exportDir);
         fs.writeFileSync(path.join(exportDir, 'memory-info.json'), JSON.stringify(info.memory, null, 2), 'utf8');
         fs.writeFileSync(path.join(exportDir, 'memory-info.html'), renderInfoHtml('Memory Info', info.memory), 'utf8');
-        output += '\n' + color.green('\n  ✔ Full details exported to memory-info/memory-info.json and memory-info/memory-info.html');
+        output += '\n' + color.green('  ✔ Full details exported to memory-info/memory-info.json and memory-info/memory-info.html');
         return output;
       }
 
       case 'disk-info': {
         const disks = gatherDiskInfo();
         let output = showDiskInfo(disks);
+
+        // Append full details
+        output += '\n\n  ' + color.bold(color.cyan('💾 All Mounted Filesystems')) + '\n';
+        output += '  ' + '─'.repeat(45) + '\n';
+        try {
+          const platform = os.platform();
+          let dfOut = '';
+          if (platform === 'win32') {
+            dfOut = execSync('wmic logicaldisk get Caption,FileSystem,FreeSpace,Size', {
+              encoding: 'utf8',
+              stdio: ['pipe', 'pipe', 'ignore']
+            });
+          } else {
+            dfOut = execSync('df -h 2>/dev/null', {
+              encoding: 'utf8',
+              stdio: ['pipe', 'pipe', 'ignore']
+            });
+          }
+          const lines = dfOut.trim().split('\n').slice(0, 10);
+          for (const line of lines) {
+            output += '  ' + line + '\n';
+          }
+          if (dfOut.trim().split('\n').length > 10) {
+            output += '  ...\n';
+          }
+        } catch {
+          output += '  Extended mount details not available.\n';
+        }
+
         const exportDir = path.join(fileOps.root, 'disk-info');
         ensureDir(exportDir);
         fs.writeFileSync(path.join(exportDir, 'disk-info.json'), JSON.stringify(disks, null, 2), 'utf8');
         fs.writeFileSync(path.join(exportDir, 'disk-info.html'), renderInfoHtml('Disk Info', disks), 'utf8');
-        output += '\n' + color.green('\n  ✔ Full details exported to disk-info/disk-info.json and disk-info/disk-info.html');
+        output += '\n' + color.green('  ✔ Full details exported to disk-info/disk-info.json and disk-info/disk-info.html');
         return output;
       }
 
       case 'battery-info': {
         const battery = gatherBatteryInfo();
         let output = showBatteryInfo(battery);
+
+        // Append full details
+        output += '\n\n  ' + color.bold(color.cyan('🔋 Power Status Details')) + '\n';
+        output += '  ' + '─'.repeat(45) + '\n';
+        const platform = os.platform();
+        if (platform === 'win32') {
+          output += '  Windows WMIC query returned:\n';
+          try {
+            const raw = execSync('wmic path Win32_Battery get /value', {
+              encoding: 'utf8',
+              stdio: ['pipe', 'pipe', 'ignore']
+            });
+            const lines = raw.trim().split('\r\n').filter(l => l.includes('Status') || l.includes('Charge') || l.includes('Name') || l.includes('Design'));
+            for (const line of lines) output += '    ' + line + '\n';
+          } catch {
+            output += '    No wmic battery details.\n';
+          }
+        } else if (platform === 'darwin') {
+          output += '  macOS pmset query returned:\n';
+          try {
+            const raw = execSync('pmset -g batt', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
+            output += '    ' + raw.trim().replace(/\n/g, '\n    ') + '\n';
+          } catch {}
+        } else if (platform === 'linux') {
+          output += '  Linux power supply BAT status:\n';
+          try {
+            const powerSupplyDir = '/sys/class/power_supply';
+            const dirs = fs.readdirSync(powerSupplyDir);
+            const batDir = dirs.find(d => d.startsWith('BAT'));
+            if (batDir) {
+              const uevent = fs.readFileSync(path.join(powerSupplyDir, batDir, 'uevent'), 'utf8');
+              const lines = uevent.trim().split('\n').filter(l => l.includes('POWER_SUPPLY_NAME') || l.includes('POWER_SUPPLY_STATUS') || l.includes('POWER_SUPPLY_CAPACITY') || l.includes('POWER_SUPPLY_TEMP') || l.includes('POWER_SUPPLY_VOLTAGE_NOW'));
+              for (const line of lines) output += '    ' + line + '\n';
+            } else {
+              output += '    No BAT device found under /sys/class/power_supply.\n';
+            }
+          } catch {
+            output += '    Failed to read battery sysfs details.\n';
+          }
+        } else {
+          output += '  No extended battery details available for this platform.\n';
+        }
+
         const exportDir = path.join(fileOps.root, 'battery-info');
         ensureDir(exportDir);
         fs.writeFileSync(path.join(exportDir, 'battery-info.json'), JSON.stringify(battery, null, 2), 'utf8');
         fs.writeFileSync(path.join(exportDir, 'battery-info.html'), renderInfoHtml('Battery Info', battery), 'utf8');
-        output += '\n' + color.green('\n  ✔ Full details exported to battery-info/battery-info.json and battery-info/battery-info.html');
+        output += '\n' + color.green('  ✔ Full details exported to battery-info/battery-info.json and battery-info/battery-info.html');
         return output;
       }
 

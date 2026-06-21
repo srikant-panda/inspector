@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-21T13:18:00.648Z",
+  "timestamp": "2026-06-21T13:26:09.615Z",
   "os": {
     "type": "Linux",
     "platform": "linux",
@@ -8,24 +8,24 @@
   },
   "hostname": "fedora",
   "nodeVersion": "v24.16.0",
-  "uptimeSeconds": 31124.71,
+  "uptimeSeconds": 31613.68,
   "homedir": "/home/hariomm",
   "cwd": "/home/hariomm/Projects/hackthon/inspector",
   "shell": "/bin/bash",
   "cpu": {
     "model": "AMD Ryzen 5 7530U with Radeon Graphics",
     "cores": 12,
-    "speedMHz": 3151
+    "speedMHz": 3649
   },
   "memory": {
     "totalMB": 15352,
-    "freeMB": 9051.61,
-    "usedPercent": 41.04
+    "freeMB": 8986.31,
+    "usedPercent": 41.46
   },
   "loadAvg": [
-    0.76,
-    0.99,
-    1.26
+    0.51,
+    0.86,
+    1.12
   ],
   "env": {
     "USER": "hariomm",
@@ -48,7 +48,7 @@
     }
   ],
   "battery": {
-    "percent": 85,
-    "status": "Discharging"
+    "percent": 81,
+    "status": "Charging"
   }
 }
