@@ -2,15 +2,15 @@
   "model": "AMD Ryzen 5 7530U with Radeon Graphics",
   "architecture": "x64",
   "cores": 12,
-  "speedMHz": 3632,
+  "speedMHz": 3652,
   "loadAvg": [
-    1.81,
-    1.49,
-    1.27
+    1.05,
+    1.18,
+    1.2
   ],
   "memory": {
     "totalMB": 15352,
-    "freeMB": 7838,
-    "usedPercent": 48.94
+    "freeMB": 7593.77,
+    "usedPercent": 50.54
   }
 }

@@ -556,8 +556,10 @@ async function startInteractiveMenu({ dir }) {
           ['Timestamp', info.timestamp]
         ];
 
+        const cols = process.stdout.columns || 80;
+        const maxValLen = Math.max(30, cols - 30);
         const envRows = Object.entries(info.env).map(([key, val]) => {
-          const displayVal = key === 'PATH' && val.length > 70 ? val.slice(0, 67) + '...' : val;
+          const displayVal = val.length > maxValLen ? val.slice(0, maxValLen - 3) + '...' : val;
           return [key, displayVal];
         });
 
@@ -750,20 +752,39 @@ async function startInteractiveMenu({ dir }) {
 
         if (platform === 'win32') {
           try {
-            const raw = execSync('wmic path Win32_Battery get /value', {
+            const raw = execSync('powershell -Command "Get-CimInstance Win32_Battery | ConvertTo-Json -Compress"', {
               encoding: 'utf8',
               stdio: ['pipe', 'pipe', 'ignore']
             });
-            const lines = raw.trim().split('\r\n').filter(l => l.includes('='));
-            for (const line of lines) {
-              const parts = line.split('=');
-              const key = parts[0].trim();
-              const val = parts.slice(1).join('=').trim();
-              if (key && val) {
-                batteryRows.push([key, val]);
+            if (raw.trim()) {
+              const parsed = JSON.parse(raw.trim());
+              const entries = Array.isArray(parsed) ? parsed : [parsed];
+              for (const item of entries) {
+                if (!item) continue;
+                for (const [key, val] of Object.entries(item)) {
+                  if (val !== null && val !== undefined && val !== '' && typeof val !== 'object') {
+                    batteryRows.push([key, String(val)]);
+                  }
+                }
               }
             }
-          } catch {}
+          } catch {
+            try {
+              const raw = execSync('wmic path Win32_Battery get /value', {
+                encoding: 'utf8',
+                stdio: ['pipe', 'pipe', 'ignore']
+              });
+              const lines = raw.trim().split('\r\n').filter(l => l.includes('='));
+              for (const line of lines) {
+                const parts = line.split('=');
+                const key = parts[0].trim();
+                const val = parts.slice(1).join('=').trim();
+                if (key && val) {
+                  batteryRows.push([key, val]);
+                }
+              }
+            } catch {}
+          }
         } else if (platform === 'darwin') {
           try {
             const raw = execSync('pmset -g batt', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
@@ -839,8 +860,23 @@ async function startInteractiveMenu({ dir }) {
           }
         }
 
+        const cols = process.stdout.columns || 80;
         output += '\n\n' + color.bold(color.cyan('🌐 Network Interface Details\n'));
-        output += renderTable(['Interface', 'Family', 'IP Address', 'Netmask', 'MAC Address', 'Type', 'CIDR'], networkRows) + '\n';
+        if (cols >= 110) {
+          output += renderTable(['Interface', 'Family', 'IP Address', 'Netmask', 'MAC Address', 'Type', 'CIDR'], networkRows) + '\n';
+        } else {
+          for (const [name, addrs] of Object.entries(ifaces)) {
+            output += `\n  📁 ${color.bold(color.green(name))}:\n`;
+            for (const addr of addrs) {
+              output += `    ${color.cyan('•')} ${color.bold('Family:')}      ${addr.family}\n`;
+              output += `      ${color.bold('IP Address:')}  ${addr.address}\n`;
+              output += `      ${color.bold('Netmask:')}     ${addr.netmask || 'N/A'}\n`;
+              output += `      ${color.bold('MAC:')}         ${addr.mac || 'N/A'}\n`;
+              output += `      ${color.bold('Type:')}        ${addr.internal ? 'Internal (lo)' : 'External'}\n`;
+              output += `      ${color.bold('CIDR:')}        ${addr.cidr || 'N/A'}\n`;
+            }
+          }
+        }
 
         const exportDir = path.join(fileOps.root, 'network-info');
         ensureDir(exportDir);
@@ -901,6 +937,90 @@ async function startInteractiveMenu({ dir }) {
     }
   }
 
+  // ── Scrollable Output Viewer (allows mouse/touchpad scrolling inside action output) ──
+  function viewScrollableOutput(output) {
+    return new Promise((resolve) => {
+      // Re-enable alternate scroll mode so mouse/touchpad scroll sends ArrowUp/ArrowDown
+      process.stdout.write('\x1b[?1007h');
+      
+      const lines = output.split('\n');
+      let scrollOffset = 0;
+
+      function render() {
+        const termHeight = process.stdout.rows || 24;
+        // Leave space for footer (3 lines)
+        const visibleHeight = Math.max(5, termHeight - 3);
+        
+        // Calculate max scroll offset
+        const maxScroll = Math.max(0, lines.length - visibleHeight);
+        if (scrollOffset > maxScroll) {
+          scrollOffset = maxScroll;
+        }
+        if (scrollOffset < 0) {
+          scrollOffset = 0;
+        }
+
+        // Get slice of lines to display
+        const visibleLines = lines.slice(scrollOffset, scrollOffset + visibleHeight);
+        
+        // Build the frame
+        let frame = visibleLines.join('\n');
+        
+        // Add padding newlines if the output has fewer lines than visibleHeight
+        const paddingCount = visibleHeight - visibleLines.length;
+        if (paddingCount > 0) {
+          frame += '\n'.repeat(paddingCount);
+        }
+
+        // Add footer with responsive pagination info
+        const scrollInfo = lines.length > visibleHeight 
+          ? ` (Lines ${scrollOffset + 1}-${Math.min(scrollOffset + visibleHeight, lines.length)} of ${lines.length})` 
+          : '';
+        const footer = '\n\n' + color.bold(color.cyan(`  [↑/↓ or j/k to scroll · Enter/q/Esc to return]${scrollInfo}`));
+        frame += footer + '\n';
+
+        // Write atomic frame
+        process.stdout.write('\x1b[H\x1b[J' + frame);
+      }
+
+      // Initial render
+      render();
+
+      // Handle terminal resizing responsively
+      const onResize = () => render();
+      process.stdout.on('resize', onResize);
+
+      if (process.stdin.isTTY) process.stdin.setRawMode(true);
+
+      function onScrollKeypress(str, key) {
+        const keyName = key ? (key.name || '') : '';
+
+        if (keyName === 'up' || str === 'k') {
+          if (scrollOffset > 0) {
+            scrollOffset--;
+            render();
+          }
+        } else if (keyName === 'down' || str === 'j') {
+          const termHeight = process.stdout.rows || 24;
+          const visibleHeight = Math.max(5, termHeight - 3);
+          if (scrollOffset < lines.length - visibleHeight) {
+            scrollOffset++;
+            render();
+          }
+        } else if (keyName === 'return' || str === 'q' || keyName === 'escape') {
+          // Cleanup this scroll listener
+          process.stdin.removeListener('keypress', onScrollKeypress);
+          process.stdout.removeListener('resize', onResize);
+          // Re-disable alternate scroll mode for the main menu
+          process.stdout.write('\x1b[?1007l');
+          resolve();
+        }
+      }
+
+      process.stdin.on('keypress', onScrollKeypress);
+    });
+  }
+
   // ── Arrow-key navigation loop (NO readline interface — raw stdin only) ─
   function keypressLoop() {
     return new Promise((resolve) => {
@@ -949,14 +1069,10 @@ async function startInteractiveMenu({ dir }) {
                 resolve(true);
               }
             } else {
-              // Show action output, wait for dismiss key, then resolve
-              renderMenu(output);
-              if (process.stdin.isTTY) process.stdin.setRawMode(true);
-              const onDismiss = (str2, key2) => {
-                process.stdin.removeListener('keypress', onDismiss);
+              // Show action output in a responsive scrollable view
+              viewScrollableOutput(output).then(() => {
                 resolve(true);
-              };
-              process.stdin.on('keypress', onDismiss);
+              });
             }
           });
         } else if (str === 'q') {

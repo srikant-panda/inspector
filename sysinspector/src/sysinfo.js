@@ -112,11 +112,39 @@ function gatherDiskInfo() {
   try {
     const platform = os.platform();
     if (platform === 'win32') {
+      try {
+        const out = execSync('powershell -Command "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID, FreeSpace, Size | ConvertTo-Json -Compress"', {
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'ignore'],
+        });
+        if (out.trim()) {
+          const parsed = JSON.parse(out.trim());
+          const list = Array.isArray(parsed) ? parsed : [parsed];
+          const disks = [];
+          for (const d of list) {
+            if (d && d.DeviceID && d.Size > 0) {
+              const drive = d.DeviceID;
+              const freeBytes = d.FreeSpace || 0;
+              const sizeBytes = d.Size || 0;
+              const totalGB = (sizeBytes / (1024 * 1024 * 1024)).toFixed(2);
+              const freeGB = (freeBytes / (1024 * 1024 * 1024)).toFixed(2);
+              const usedBytes = sizeBytes - freeBytes;
+              const usedGB = (usedBytes / (1024 * 1024 * 1024)).toFixed(2);
+              const usedPct = Number(((usedBytes / sizeBytes) * 100).toFixed(1));
+              disks.push({ drive, totalGB, usedGB, freeGB, usedPct });
+            }
+          }
+          if (disks.length > 0) return disks;
+        }
+      } catch (err) {
+        // Fall back to wmic if powershell fails
+      }
+
       const out = execSync('wmic logicaldisk get Caption,FreeSpace,Size', {
         encoding: 'utf8',
         stdio: ['pipe', 'pipe', 'ignore'],
       });
-      const lines = out.trim().split('\r\n');
+      const lines = out.replace(/\r/g, '').trim().split('\n');
       const disks = [];
       for (let i = 1; i < lines.length; i++) {
         const parts = lines[i].trim().split(/\s+/);
@@ -177,24 +205,51 @@ function gatherBatteryInfo() {
   try {
     const platform = os.platform();
     if (platform === 'win32') {
-      const out = execSync('wmic path Win32_Battery get EstimatedChargeRemaining,BatteryStatus', {
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'ignore'],
-      });
-      const lines = out.trim().split('\r\n');
-      if (lines.length >= 2) {
-        const parts = lines[1].trim().split(/\s+/);
-        if (parts.length >= 2) {
-          const statusVal = parseInt(parts[0], 10);
-          const percent = parseInt(parts[1], 10);
-          let status = 'Unknown';
-          if (statusVal === 1) status = 'Discharging';
-          else if (statusVal === 2) status = 'On AC Power';
-          else if (statusVal === 3) status = 'Fully Charged';
-          else if (statusVal >= 6 && statusVal <= 9) status = 'Charging';
-          return { percent, status };
+      try {
+        const out = execSync('powershell -Command "Get-CimInstance Win32_Battery | Select-Object BatteryStatus, EstimatedChargeRemaining | ConvertTo-Json -Compress"', {
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'ignore'],
+        });
+        if (out.trim()) {
+          const parsed = JSON.parse(out.trim());
+          const list = Array.isArray(parsed) ? parsed : [parsed];
+          for (const item of list) {
+            if (item && item.EstimatedChargeRemaining !== undefined) {
+              const statusVal = item.BatteryStatus;
+              const percent = item.EstimatedChargeRemaining;
+              let status = 'Unknown';
+              if (statusVal === 1) status = 'Discharging';
+              else if (statusVal === 2) status = 'On AC Power';
+              else if (statusVal === 3) status = 'Fully Charged';
+              else if (statusVal >= 6 && statusVal <= 9) status = 'Charging';
+              return { percent, status };
+            }
+          }
         }
+      } catch (err) {
+        // Fall back to wmic if powershell fails
       }
+
+      try {
+        const out = execSync('wmic path Win32_Battery get EstimatedChargeRemaining,BatteryStatus', {
+          encoding: 'utf8',
+          stdio: ['pipe', 'pipe', 'ignore'],
+        });
+        const lines = out.replace(/\r/g, '').trim().split('\n');
+        if (lines.length >= 2) {
+          const parts = lines[1].trim().split(/\s+/);
+          if (parts.length >= 2) {
+            const statusVal = parseInt(parts[0], 10);
+            const percent = parseInt(parts[1], 10);
+            let status = 'Unknown';
+            if (statusVal === 1) status = 'Discharging';
+            else if (statusVal === 2) status = 'On AC Power';
+            else if (statusVal === 3) status = 'Fully Charged';
+            else if (statusVal >= 6 && statusVal <= 9) status = 'Charging';
+            return { percent, status };
+          }
+        }
+      } catch (err) {}
       return 'N/A';
     } else if (platform === 'darwin') {
       const out = execSync('pmset -g batt', {
