@@ -2,6 +2,7 @@ const readline = require('readline');
 const fs       = require('fs');
 const path     = require('path');
 const os       = require('os');
+const { execSync } = require('child_process');
 const { gatherSystemInfo, gatherDiskInfo, gatherBatteryInfo } = require('./sysinfo');
 const { FileOps }           = require('./fileOps');
 const { renderInfoHtml }    = require('./htmlExport');
@@ -160,6 +161,62 @@ function makeProgressBar(percent, width = 20) {
   const emptyCount = width - filledCount;
   return `[${'█'.repeat(filledCount)}${'░'.repeat(emptyCount)}] ${percent.toFixed(1)}%`;
 }
+
+function colorizeJson(obj) {
+  const jsonStr = JSON.stringify(obj, null, 2);
+  const lines = jsonStr.split('\n');
+  const formattedLines = lines.map(line => {
+    const highlighted = line.replace(
+      /("(\\u[a-zA-Z0-9]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+-]?\d+)?)/g,
+      (match) => {
+        if (/^"/.test(match)) {
+          if (/:$/.test(match)) {
+            return color.cyan(match);
+          } else {
+            return color.green(match);
+          }
+        } else if (/true|false/.test(match)) {
+          return color.magenta(match);
+        } else if (/null/.test(match)) {
+          return color.red(match);
+        }
+        return color.yellow(match);
+      }
+    );
+    return '    ' + highlighted;
+  });
+  return formattedLines.join('\n');
+}
+
+function renderTable(headers, rows) {
+  const colWidths = headers.map(h => visibleLen(h));
+  for (const row of rows) {
+    for (let i = 0; i < headers.length; i++) {
+      const val = String(row[i] !== undefined && row[i] !== null ? row[i] : '');
+      const len = visibleLen(val);
+      if (len > colWidths[i]) {
+        colWidths[i] = len;
+      }
+    }
+  }
+
+  const topBorder = '  ┌─' + colWidths.map(w => '─'.repeat(w)).join('─┬─') + '─┐';
+  const headerLine = '  │ ' + headers.map((h, i) => padVisible(color.bold(color.cyan(h)), colWidths[i])).join(' │ ') + ' │';
+  const divider = '  ├─' + colWidths.map(w => '─'.repeat(w)).join('─┼─') + '─┤';
+  const bottomBorder = '  └─' + colWidths.map(w => '─'.repeat(w)).join('─┴─') + '─┘';
+
+  const lines = [topBorder, headerLine, divider];
+  for (const row of rows) {
+    const rowLine = '  │ ' + row.map((cell, i) => {
+      const val = String(cell !== undefined && cell !== null ? cell : '');
+      return padVisible(val, colWidths[i]);
+    }).join(' │ ') + ' │';
+    lines.push(rowLine);
+  }
+  lines.push(bottomBorder);
+  return lines.join('\n');
+}
+
 
 function showDiskInfo(disks) {
   const header = 'Disk Info';
@@ -478,16 +535,30 @@ async function startInteractiveMenu({ dir }) {
         const info = gatherSystemInfo();
         let output = showOsInfo(info);
         
-        // Append full details
-        output += '\n\n  ' + color.bold(color.cyan('📁 Additional OS & Env Details')) + '\n';
-        output += '  ' + '─'.repeat(45) + '\n';
-        output += `  ${color.bold('CWD:')}        ${info.cwd}\n`;
-        output += `  ${color.bold('Timestamp:')}  ${info.timestamp}\n\n`;
-        output += `  ${color.bold('🔑 Environment Variables:')}\n`;
-        for (const [key, val] of Object.entries(info.env)) {
-          const displayVal = key === 'PATH' && val.length > 60 ? val.slice(0, 57) + '...' : val;
-          output += `    ${color.green(key.padEnd(10))} ${displayVal}\n`;
-        }
+        const uptimeStr = formatUptime(info.uptimeSeconds);
+        const osRows = [
+          ['OS Type', info.os.type],
+          ['Platform', info.os.platform],
+          ['Release', info.os.release],
+          ['Architecture', info.os.arch],
+          ['Hostname', info.hostname],
+          ['Node.js Version', info.nodeVersion],
+          ['Uptime', uptimeStr],
+          ['Current Directory (CWD)', info.cwd],
+          ['Home Directory', info.homedir],
+          ['User Shell', info.shell],
+          ['Timestamp', info.timestamp]
+        ];
+
+        const envRows = Object.entries(info.env).map(([key, val]) => {
+          const displayVal = key === 'PATH' && val.length > 70 ? val.slice(0, 67) + '...' : val;
+          return [key, displayVal];
+        });
+
+        output += '\n\n' + color.bold(color.cyan('🖥️  OS Core Properties\n'));
+        output += renderTable(['Property', 'Value'], osRows) + '\n\n';
+        output += color.bold(color.cyan('🔑 Captured Environment Variables\n'));
+        output += renderTable(['Variable Name', 'Value'], envRows) + '\n';
 
         const exportDir = path.join(fileOps.root, 'os-info');
         ensureDir(exportDir);
@@ -501,26 +572,37 @@ async function startInteractiveMenu({ dir }) {
         const info = gatherSystemInfo();
         let output = showCpuInfo(info);
 
-        // Append full details
-        output += '\n\n  ' + color.bold(color.cyan('🧠 Detailed CPU Core Info')) + '\n';
-        output += '  ' + '─'.repeat(45) + '\n';
+        let loadStr = 'N/A';
+        if (Array.isArray(info.loadAvg)) {
+          loadStr = info.loadAvg.join(', ');
+        }
+        const summaryRows = [
+          ['Model', info.cpu.model],
+          ['Architecture', info.os.arch],
+          ['Cores', String(info.cpu.cores)],
+          ['Base/Current Speed', `${info.cpu.speedMHz} MHz`],
+          ['Load Avg (1m, 5m, 15m)', loadStr]
+        ];
+
         const cpus = os.cpus();
-        if (Array.isArray(cpus) && cpus.length > 0) {
-          output += `  ${color.bold('Core count:')} ${cpus.length}\n`;
-          output += `  ${color.bold('Speeds by core:')}\n`;
-          const limit = Math.min(cpus.length, 8);
-          for (let i = 0; i < limit; i++) {
-            output += `    Core ${i}: ${color.green(cpus[i].speed + ' MHz')} - ${cpus[i].model.trim()}\n`;
+        const coreRows = [];
+        if (Array.isArray(cpus)) {
+          for (let i = 0; i < cpus.length; i++) {
+            coreRows.push([
+              `Core ${i}`,
+              cpus[i].model.trim(),
+              `${cpus[i].speed} MHz`
+            ]);
           }
-          if (cpus.length > limit) {
-            output += `    ... and ${cpus.length - limit} more cores\n`;
-          }
-        } else {
-          output += '  Core details not available.\n';
         }
 
-        const exportDir = path.join(fileOps.root, 'cpu-info');
-        ensureDir(exportDir);
+        output += '\n\n' + color.bold(color.cyan('🧠 CPU Summary\n'));
+        output += renderTable(['Property', 'Value'], summaryRows) + '\n\n';
+        if (coreRows.length > 0) {
+          output += color.bold(color.cyan('⚙️  Individual Cores\n'));
+          output += renderTable(['Core #', 'Model Name', 'Current Speed'], coreRows) + '\n';
+        }
+
         const cpuData = {
           model: info.cpu.model,
           architecture: info.os.arch,
@@ -529,6 +611,9 @@ async function startInteractiveMenu({ dir }) {
           loadAvg: info.loadAvg,
           memory: info.memory,
         };
+
+        const exportDir = path.join(fileOps.root, 'cpu-info');
+        ensureDir(exportDir);
         fs.writeFileSync(path.join(exportDir, 'cpu-info.json'), JSON.stringify(cpuData, null, 2), 'utf8');
         fs.writeFileSync(path.join(exportDir, 'cpu-info.html'), renderInfoHtml('CPU Info', cpuData), 'utf8');
         output += '\n' + color.green('  ✔ Full details exported to cpu-info/cpu-info.json and cpu-info/cpu-info.html');
@@ -539,16 +624,24 @@ async function startInteractiveMenu({ dir }) {
         const info = gatherSystemInfo();
         let output = showMemoryInfo(info);
 
-        // Append full details
         const totalBytes = os.totalmem();
         const freeBytes = os.freemem();
         const usedBytes = totalBytes - freeBytes;
-        output += '\n\n  ' + color.bold(color.cyan('📊 Raw Memory Allocation')) + '\n';
-        output += '  ' + '─'.repeat(45) + '\n';
-        output += `  ${color.bold('Total Bytes:')} ${totalBytes.toLocaleString()} B\n`;
-        output += `  ${color.bold('Free Bytes:')}  ${freeBytes.toLocaleString()} B\n`;
-        output += `  ${color.bold('Used Bytes:')}  ${usedBytes.toLocaleString()} B\n`;
-        output += `  ${color.bold('Load Average (1m, 5m, 15m):')} ${info.loadAvg !== 'N/A' ? info.loadAvg.join(', ') : 'N/A'}\n`;
+
+        const formatMB = (val) => `${val.toFixed(2)} MB`;
+        const formatGB = (bytes) => `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+        const formatPercent = (pct) => typeof pct === 'number' ? makeProgressBar(pct, 15) : pct;
+
+        const memRows = [
+          ['Total Memory', `${formatMB(info.memory.totalMB)} / ${formatGB(totalBytes)} / ${totalBytes.toLocaleString()} Bytes`],
+          ['Free Memory', `${formatMB(info.memory.freeMB)} / ${formatGB(freeBytes)} / ${freeBytes.toLocaleString()} Bytes`],
+          ['Used Memory', `${formatMB(info.memory.totalMB - info.memory.freeMB)} / ${formatGB(usedBytes)} / ${usedBytes.toLocaleString()} Bytes`],
+          ['Memory Usage', formatPercent(info.memory.usedPercent)],
+          ['Load Average (1m, 5m, 15m)', Array.isArray(info.loadAvg) ? info.loadAvg.join(', ') : 'N/A']
+        ];
+
+        output += '\n\n' + color.bold(color.cyan('📊 Memory Allocation Table\n'));
+        output += renderTable(['Memory Metric', 'Value / Bar'], memRows) + '\n';
 
         const exportDir = path.join(fileOps.root, 'memory-info');
         ensureDir(exportDir);
@@ -562,32 +655,76 @@ async function startInteractiveMenu({ dir }) {
         const disks = gatherDiskInfo();
         let output = showDiskInfo(disks);
 
-        // Append full details
-        output += '\n\n  ' + color.bold(color.cyan('💾 All Mounted Filesystems')) + '\n';
-        output += '  ' + '─'.repeat(45) + '\n';
+        const summaryRows = [];
+        if (Array.isArray(disks)) {
+          for (const d of disks) {
+            summaryRows.push([
+              d.drive,
+              d.totalGB,
+              d.usedGB,
+              d.freeGB,
+              typeof d.usedPct === 'number' ? makeProgressBar(d.usedPct, 15) : d.usedPct
+            ]);
+          }
+        }
+
+        const platform = os.platform();
+        const allDiskRows = [];
         try {
-          const platform = os.platform();
           let dfOut = '';
           if (platform === 'win32') {
             dfOut = execSync('wmic logicaldisk get Caption,FileSystem,FreeSpace,Size', {
               encoding: 'utf8',
               stdio: ['pipe', 'pipe', 'ignore']
             });
+            const lines = dfOut.trim().split('\r\n');
+            for (let i = 1; i < lines.length; i++) {
+              const parts = lines[i].trim().split(/\s+/);
+              if (parts.length >= 4) {
+                const caption = parts[0];
+                const fsType = parts[1];
+                const free = parseInt(parts[2], 10);
+                const size = parseInt(parts[3], 10);
+                if (!isNaN(free) && !isNaN(size) && size > 0) {
+                  const freeGB = (free / (1024**3)).toFixed(2) + ' GB';
+                  const sizeGB = (size / (1024**3)).toFixed(2) + ' GB';
+                  const usedGB = ((size - free) / (1024**3)).toFixed(2) + ' GB';
+                  const pct = (((size - free) / size) * 100).toFixed(1) + '%';
+                  allDiskRows.push([caption, fsType, sizeGB, usedGB, freeGB, pct]);
+                }
+              }
+            }
           } else {
             dfOut = execSync('df -h 2>/dev/null', {
               encoding: 'utf8',
               stdio: ['pipe', 'pipe', 'ignore']
             });
+            const lines = dfOut.trim().split('\n');
+            for (let i = 1; i < lines.length; i++) {
+              const parts = lines[i].trim().split(/\s+/);
+              if (parts.length >= 6) {
+                const filesystem = parts[0];
+                const size = parts[1];
+                const used = parts[2];
+                const avail = parts[3];
+                const pct = parts[4];
+                const mountedOn = parts[5];
+                allDiskRows.push([filesystem, mountedOn, size, used, avail, pct]);
+              }
+            }
           }
-          const lines = dfOut.trim().split('\n').slice(0, 10);
-          for (const line of lines) {
-            output += '  ' + line + '\n';
+        } catch {}
+
+        output += '\n\n' + color.bold(color.cyan('📁 Summary of Primary Drives\n'));
+        output += renderTable(['Drive/Mount', 'Total Size', 'Used Space', 'Free Space', 'Usage Bar'], summaryRows) + '\n\n';
+
+        if (allDiskRows.length > 0) {
+          output += color.bold(color.cyan('💾 All Mounted Filesystems & Partitions\n'));
+          if (platform === 'win32') {
+            output += renderTable(['Drive', 'File System', 'Total Size', 'Used Space', 'Free Space', 'Use%'], allDiskRows) + '\n';
+          } else {
+            output += renderTable(['Filesystem', 'Mounted On', 'Size', 'Used', 'Avail', 'Use%'], allDiskRows) + '\n';
           }
-          if (dfOut.trim().split('\n').length > 10) {
-            output += '  ...\n';
-          }
-        } catch {
-          output += '  Extended mount details not available.\n';
         }
 
         const exportDir = path.join(fileOps.root, 'disk-info');
@@ -602,46 +739,70 @@ async function startInteractiveMenu({ dir }) {
         const battery = gatherBatteryInfo();
         let output = showBatteryInfo(battery);
 
-        // Append full details
-        output += '\n\n  ' + color.bold(color.cyan('🔋 Power Status Details')) + '\n';
-        output += '  ' + '─'.repeat(45) + '\n';
         const platform = os.platform();
+        const batteryRows = [];
+
         if (platform === 'win32') {
-          output += '  Windows WMIC query returned:\n';
           try {
             const raw = execSync('wmic path Win32_Battery get /value', {
               encoding: 'utf8',
               stdio: ['pipe', 'pipe', 'ignore']
             });
-            const lines = raw.trim().split('\r\n').filter(l => l.includes('Status') || l.includes('Charge') || l.includes('Name') || l.includes('Design'));
-            for (const line of lines) output += '    ' + line + '\n';
-          } catch {
-            output += '    No wmic battery details.\n';
-          }
+            const lines = raw.trim().split('\r\n').filter(l => l.includes('='));
+            for (const line of lines) {
+              const parts = line.split('=');
+              const key = parts[0].trim();
+              const val = parts.slice(1).join('=').trim();
+              if (key && val) {
+                batteryRows.push([key, val]);
+              }
+            }
+          } catch {}
         } else if (platform === 'darwin') {
-          output += '  macOS pmset query returned:\n';
           try {
             const raw = execSync('pmset -g batt', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
-            output += '    ' + raw.trim().replace(/\n/g, '\n    ') + '\n';
+            const lines = raw.trim().split('\n');
+            if (lines.length > 0) {
+              batteryRows.push(['Power Source Details', lines[0]]);
+            }
+            if (lines.length > 1) {
+              const match = lines[1].match(/([A-Za-z0-9-]+)\s+\(id=\d+\)\s+(\d+%);\s+([^;]+);\s*(.*)/);
+              if (match) {
+                batteryRows.push(['Device Name', match[1]]);
+                batteryRows.push(['Charge Level', match[2]]);
+                batteryRows.push(['Power Status', match[3]]);
+                batteryRows.push(['Remaining Estimate', match[4] || 'N/A']);
+              } else {
+                batteryRows.push(['Status Line', lines[1]]);
+              }
+            }
           } catch {}
         } else if (platform === 'linux') {
-          output += '  Linux power supply BAT status:\n';
           try {
             const powerSupplyDir = '/sys/class/power_supply';
             const dirs = fs.readdirSync(powerSupplyDir);
             const batDir = dirs.find(d => d.startsWith('BAT'));
             if (batDir) {
               const uevent = fs.readFileSync(path.join(powerSupplyDir, batDir, 'uevent'), 'utf8');
-              const lines = uevent.trim().split('\n').filter(l => l.includes('POWER_SUPPLY_NAME') || l.includes('POWER_SUPPLY_STATUS') || l.includes('POWER_SUPPLY_CAPACITY') || l.includes('POWER_SUPPLY_TEMP') || l.includes('POWER_SUPPLY_VOLTAGE_NOW'));
-              for (const line of lines) output += '    ' + line + '\n';
-            } else {
-              output += '    No BAT device found under /sys/class/power_supply.\n';
+              const lines = uevent.trim().split('\n').filter(l => l.includes('='));
+              for (const line of lines) {
+                const parts = line.split('=');
+                const key = parts[0].replace('POWER_SUPPLY_', '').replace(/_/g, ' ').trim();
+                const val = parts.slice(1).join('=').trim();
+                if (key && val) {
+                  batteryRows.push([key, val]);
+                }
+              }
             }
-          } catch {
-            output += '    Failed to read battery sysfs details.\n';
-          }
+          } catch {}
+        }
+
+        output += '\n\n';
+        if (batteryRows.length > 0) {
+          output += color.bold(color.cyan('🔋 Detailed Battery/Power Attributes\n'));
+          output += renderTable(['Attribute', 'Value'], batteryRows) + '\n';
         } else {
-          output += '  No extended battery details available for this platform.\n';
+          output += color.dim('  Extended power supply attributes not available on this system.') + '\n';
         }
 
         const exportDir = path.join(fileOps.root, 'battery-info');
@@ -652,8 +813,36 @@ async function startInteractiveMenu({ dir }) {
         return output;
       }
 
-      case 'network':
-        return showNetwork();
+      case 'network': {
+        const ifaces = os.networkInterfaces();
+        let output = showNetwork();
+
+        const networkRows = [];
+        for (const [name, addrs] of Object.entries(ifaces)) {
+          for (let i = 0; i < addrs.length; i++) {
+            const addr = addrs[i];
+            networkRows.push([
+              i === 0 ? name : '',
+              addr.family,
+              addr.address,
+              addr.netmask || 'N/A',
+              addr.mac || 'N/A',
+              addr.internal ? 'Internal (lo)' : 'External',
+              addr.cidr || 'N/A'
+            ]);
+          }
+        }
+
+        output += '\n\n' + color.bold(color.cyan('🌐 Network Interface Details\n'));
+        output += renderTable(['Interface', 'Family', 'IP Address', 'Netmask', 'MAC Address', 'Type', 'CIDR'], networkRows) + '\n';
+
+        const exportDir = path.join(fileOps.root, 'network-info');
+        ensureDir(exportDir);
+        fs.writeFileSync(path.join(exportDir, 'network-info.json'), JSON.stringify(ifaces, null, 2), 'utf8');
+        fs.writeFileSync(path.join(exportDir, 'network-info.html'), renderInfoHtml('Network Info', ifaces), 'utf8');
+        output += '\n' + color.green('  ✔ Full details exported to network-info/network-info.json and network-info/network-info.html');
+        return output;
+      }
 
       case 'list': {
         const subDir = (await getTextInput('  Sub-directory to list [.]: ')) || '.';

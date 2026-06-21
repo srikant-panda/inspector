@@ -29,7 +29,16 @@ function renderSection(obj) {
     if (value && typeof value === 'object' && !Array.isArray(value)) {
       html += `<dt>${label}</dt><dd>${renderSection(value)}</dd>`;
     } else if (Array.isArray(value)) {
-      html += `<dt>${label}</dt><dd>${escapeHtml(value.join(', '))}</dd>`;
+      if (value.length > 0 && typeof value[0] === 'object' && value[0] !== null) {
+        let subHtml = '<ol style="list-style-type: none; margin-left: 0; padding-left: 0;">';
+        for (let i = 0; i < value.length; i++) {
+          subHtml += `<li style="margin-bottom: 0.75rem; border-left: 2px solid #565f89; padding-left: 0.75rem;">${renderSection(value[i])}</li>`;
+        }
+        subHtml += '</ol>';
+        html += `<dt>${label}</dt><dd>${subHtml}</dd>`;
+      } else {
+        html += `<dt>${label}</dt><dd>${escapeHtml(value.join(', '))}</dd>`;
+      }
     } else {
       html += `<dt>${label}</dt><dd>${escapeHtml(String(value))}</dd>`;
     }
