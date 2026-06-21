@@ -54,6 +54,31 @@ const ENV_WHITELIST = [
   'NODE_ENV',
 ];
 
+function getCpuUsage() {
+  const start = os.cpus();
+  if (!start || start.length === 0) return 'N/A';
+  const startTick = Date.now();
+  while (Date.now() - startTick < 100) {}
+  const end = os.cpus();
+  if (!end || end.length === 0) return 'N/A';
+  
+  let totalDiff = 0;
+  let idleDiff = 0;
+  for (let i = 0; i < start.length; i++) {
+    const sCore = start[i];
+    const eCore = end[i];
+    if (!sCore || !eCore) continue;
+    const sTimes = sCore.times;
+    const eTimes = eCore.times;
+    const sTotal = sTimes.user + sTimes.nice + sTimes.sys + sTimes.idle + sTimes.irq;
+    const eTotal = eTimes.user + eTimes.nice + eTimes.sys + eTimes.idle + eTimes.irq;
+    totalDiff += (eTotal - sTotal);
+    idleDiff += (eTimes.idle - sTimes.idle);
+  }
+  if (totalDiff === 0) return 0;
+  return Number((100 - (idleDiff / totalDiff) * 100).toFixed(1));
+}
+
 /**
  * Gathers a snapshot of the current system + environment information.
  * Every OS/process lookup is wrapped in `safe()` so the function always
@@ -62,7 +87,7 @@ const ENV_WHITELIST = [
  * @returns {object} System information snapshot
  */
 function gatherSystemInfo(options = {}) {
-  const { includeHeavy = false } = options;
+  const { includeHeavy = false, includeCpuUsage = false } = options;
   // CPU — handle the edge case where os.cpus() returns an empty array
   const cpus = safe(() => os.cpus(), []);
   const cpuInfo = Array.isArray(cpus) && cpus.length > 0
@@ -70,8 +95,9 @@ function gatherSystemInfo(options = {}) {
         model: cpus[0].model.trim(),
         cores: cpus.length,
         speedMHz: cpus[0].speed,
+        usagePercent: (includeHeavy || includeCpuUsage) ? safe(() => getCpuUsage(), 'N/A') : 'N/A',
       }
-    : { model: 'N/A', cores: 'N/A', speedMHz: 'N/A' };
+    : { model: 'N/A', cores: 'N/A', speedMHz: 'N/A', usagePercent: 'N/A' };
 
   // Memory
   const totalBytes = safe(() => os.totalmem(), 0);

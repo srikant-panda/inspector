@@ -114,16 +114,6 @@ function showCpuInfo(info) {
   const header = 'CPU Info';
   const underline = '─'.repeat(header.length);
 
-  // Load average — N/A on Windows if all zeros
-  let loadStr = 'N/A';
-  if (Array.isArray(info.loadAvg)) {
-    if (os.platform() === 'win32' && info.loadAvg.every(v => v === 0)) {
-      loadStr = 'N/A (not available on Windows)';
-    } else {
-      loadStr = info.loadAvg.join(', ');
-    }
-  }
-
   const right = [
     color.bold(color.cyan(header)),
     color.dim(underline),
@@ -131,8 +121,18 @@ function showCpuInfo(info) {
     `⚙️  ${color.bold('Architecture:')} ${info.os.arch}`,
     `🔢 ${color.bold('Cores:')}        ${info.cpu.cores}`,
     `⚡ ${color.bold('Speed:')}        ${info.cpu.speedMHz} MHz`,
-    `📊 ${color.bold('Load Avg:')}     ${loadStr}`,
   ];
+
+  if (os.platform() === 'win32') {
+    const usageStr = typeof info.cpu.usagePercent === 'number' ? `${info.cpu.usagePercent}%` : info.cpu.usagePercent;
+    right.push(`📊 ${color.bold('CPU Load:')}     ${usageStr}`);
+  } else {
+    let loadStr = 'N/A';
+    if (Array.isArray(info.loadAvg)) {
+      loadStr = info.loadAvg.join(', ');
+    }
+    right.push(`📊 ${color.bold('Load Avg:')}     ${loadStr}`);
+  }
 
   const lines = [];
   const maxRows = Math.max(LOGO.length, right.length);
@@ -363,7 +363,7 @@ async function startInteractiveMenu({ dir }) {
         return showOsInfo(info).split('\n');
       }
       case 'cpu-info': {
-        const info = gatherSystemInfo();
+        const info = gatherSystemInfo({ includeCpuUsage: true });
         return showCpuInfo(info).split('\n');
       }
       case 'memory-info': {
@@ -622,11 +622,14 @@ async function startInteractiveMenu({ dir }) {
       }
 
       case 'cpu-info': {
-        const info = gatherSystemInfo();
+        const info = gatherSystemInfo({ includeCpuUsage: true });
         let output = showCpuInfo(info);
 
+        const loadLabel = os.platform() === 'win32' ? 'CPU Load' : 'Load Avg (1m, 5m, 15m)';
         let loadStr = 'N/A';
-        if (Array.isArray(info.loadAvg)) {
+        if (os.platform() === 'win32') {
+          loadStr = typeof info.cpu.usagePercent === 'number' ? `${info.cpu.usagePercent}%` : info.cpu.usagePercent;
+        } else if (Array.isArray(info.loadAvg)) {
           loadStr = info.loadAvg.join(', ');
         }
         const summaryRows = [
@@ -634,7 +637,7 @@ async function startInteractiveMenu({ dir }) {
           ['Architecture', info.os.arch],
           ['Cores', String(info.cpu.cores)],
           ['Base/Current Speed', `${info.cpu.speedMHz} MHz`],
-          ['Load Avg (1m, 5m, 15m)', loadStr]
+          [loadLabel, loadStr]
         ];
 
         const cpus = os.cpus();
@@ -661,6 +664,7 @@ async function startInteractiveMenu({ dir }) {
           architecture: info.os.arch,
           cores: info.cpu.cores,
           speedMHz: info.cpu.speedMHz,
+          usagePercent: info.cpu.usagePercent,
           loadAvg: info.loadAvg,
           memory: info.memory,
         };
