@@ -494,7 +494,7 @@ async function startInteractiveMenu({ dir }) {
       const cols = process.stdout.columns || 80;
       const rows = process.stdout.rows || 24;
       const isWide = cols >= 115;
-      const previewLines = getDynamicPreview(MENU_ITEMS[selected].action);
+      const previewLines = options.previewOverride || getDynamicPreview(MENU_ITEMS[selected].action);
 
       const headerLines = [];
       headerLines.push(`  Sandbox root: ${color.cyan(fileOps.root)}`);
@@ -1132,12 +1132,41 @@ async function startInteractiveMenu({ dir }) {
 
         const keyName = key.name || '';
 
-        if (keyName === 'up' || str === 'k') {
-          selected = (selected - 1 + MENU_ITEMS.length) % MENU_ITEMS.length;
-          renderMenu();
-        } else if (keyName === 'down' || str === 'j') {
-          selected = (selected + 1) % MENU_ITEMS.length;
-          renderMenu();
+        if (keyName === 'up' || str === 'k' || keyName === 'down' || str === 'j') {
+          // Block input during preview loading
+          process.stdin.removeListener('keypress', onKeypress);
+
+          if (keyName === 'up' || str === 'k') {
+            selected = (selected - 1 + MENU_ITEMS.length) % MENU_ITEMS.length;
+          } else {
+            selected = (selected + 1) % MENU_ITEMS.length;
+          }
+
+          const isHeavy = MENU_ITEMS[selected].action === 'disk-info' || MENU_ITEMS[selected].action === 'battery-info';
+          if (isHeavy) {
+            renderLoadingScreen(MENU_ITEMS[selected].label);
+          } else {
+            renderMenu();
+          }
+
+          // Defer actual preview rendering/queries slightly to let loading screen paint
+          setTimeout(() => {
+            try {
+              renderMenu();
+            } catch (err) {
+              const errLines = [
+                color.bold(color.red('❌ Load Error')),
+                color.dim('─'.repeat(12)),
+                `Error: ${err.message || err}`,
+              ];
+              renderMenu(undefined, { previewOverride: errLines });
+            }
+
+            // Flush buffered inputs by delaying listener re-attachment
+            setTimeout(() => {
+              process.stdin.on('keypress', onKeypress);
+            }, 150);
+          }, 50);
         } else if (keyName === 'return') {
           const chosen = MENU_ITEMS[selected].action;
           cleanup();
