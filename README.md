@@ -16,6 +16,7 @@ The complete documentation set is organized into modular files inside the `docs/
 * **[Code Flow](docs/CODE_FLOW.md)** — Dotted workflow diagrams showing application startup, diagnostic query, and file operations.
 * **[Features Catalog](docs/FEATURES.md)** — Highlights individual capabilities (System Info, File Manager, Safety) and platform support.
 * **[Error & Safety Handling](docs/ERROR_HANDLING.md)** — Documents crash-prevention guidelines (`safe()`), path resolutions, and error matrices.
+* **[Architectural Issue Solver](docs/ARCHITECTURAL_ISSUE_SOLVER.md)** — Catalogs significant architectural problems encountered and solved: loading screens, dynamic timeouts, atomic rendering, scrollable viewers, raw-mode safety, cross-platform aliases, and more.
 * **[Codebase Mapping](docs/CODEBASE.md)** — A directory structural reference outlining file responsibilities and outputs.
 
 ---
@@ -79,3 +80,14 @@ Override the default sandbox directory (applicable in all modes):
 ```bash
 node sysinspector/src/index.js --dir /path/to/custom/sandbox
 ```
+
+---
+
+## Cross-Platform Notes
+
+### Environment Variables on Windows
+When running Inspector on Windows (native, VirtualBox VM, or WSL via `cmd.exe`/PowerShell), the **Captured Environment Variables** table intentionally shows `N/A` for several entries such as `USER`, `SHELL`, `LANG`, `TERM`, and `PWD`. This is **expected behavior, not a bug**.
+
+These are Unix/Linux-standard variable names that Windows simply does not define. The tool uses a fixed security whitelist (`SAFE_ENV_KEYS` in `sysinfo.js`) and reads `process.env` directly — when a variable does not exist on the host OS, it gracefully falls back to `N/A`. Windows-native variables like `USERNAME` and `HOME` (mapped via `os.homedir()`) are captured correctly.
+
+See [docs/ERROR_HANDLING.md — Cross-Platform Environment Variable Behavior](docs/ERROR_HANDLING.md#cross-platform-environment-variable-behavior) for the full variable-by-variable breakdown.
