@@ -51,6 +51,8 @@ Below is a condensed representation of Inspector's core architecture and control
 ---
 
 ## Quickstart
+`please prefer CMD over powershell in windows to skip the permission issue in npm install.`
+
 Clone the project 
 ```bash
 git clone https://github.com/srikant-panda/inspector.git
