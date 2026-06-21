@@ -318,6 +318,8 @@ function ensureDir(dirPath) {
  * @param {string} options.dir – sandbox root directory
  */
 async function startInteractiveMenu({ dir }) {
+  // Enter alternate screen buffer & hide cursor for raw keypress navigation
+  process.stdout.write('\x1b[?1049h\x1b[?25l');
   const fileOps = new FileOps(dir);
 
   // ── Menu items ──────────────────────────────────────────────────────
@@ -512,17 +514,21 @@ async function startInteractiveMenu({ dir }) {
     }
 
     // THE ONLY write for menu rendering — clear screen + full frame, one call
-    process.stdout.write('\x1b[2J\x1b[H' + frame);
+    process.stdout.write('\x1b[H\x1b[J' + frame);
   }
 
   // ── Helper: get text input (creates temporary readline, closes it) ─
   async function getTextInput(prompt) {
     // Exit raw mode for text input
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
+    // Show cursor for user typing
+    process.stdout.write('\x1b[?25h');
     const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const askQ = (q) => new Promise((r) => rl.question(q, r));
     const result = await askQ(prompt);
     rl.close();
+    // Hide cursor again
+    process.stdout.write('\x1b[?25l');
     // Re-enable raw mode for keypress navigation
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
     return result;
@@ -876,15 +882,21 @@ async function startInteractiveMenu({ dir }) {
 
       case 'filemanager': {
         const pName = getPlatformName();
+        // Show cursor for file manager prompt
+        process.stdout.write('\x1b[?25h');
         // Clear screen, show intro, hand off to file manager
         renderMenu(color.dim(`  Sandboxed CRUD file manager — supports all ${pName} commands`) + '\n\n', { rawFrame: true });
         const { startFileManager } = require('../../filemanager/index.js');
         await startFileManager();
+        // Hide cursor again when returning to menu navigation
+        process.stdout.write('\x1b[?25l');
         return null; // no output — go straight to menu on return
       }
 
       case 'exit':
-        renderMenu(color.green('\n  Goodbye!\n\n'), { rawFrame: true });
+        // Restore cursor and exit alternate screen buffer
+        process.stdout.write('\x1b[?25h\x1b[?1049l');
+        process.stdout.write(color.green('\n  Goodbye!\n\n'));
         return null; // special: signals exit
     }
   }
@@ -909,7 +921,8 @@ async function startInteractiveMenu({ dir }) {
       function onKeypress(str, key) {
         if (key.ctrl && key.name === 'c') {
           cleanup();
-          renderMenu(color.green('\n  Goodbye!\n\n'), { rawFrame: true });
+          process.stdout.write('\x1b[?25h\x1b[?1049l');
+          process.stdout.write(color.green('\n  Goodbye!\n\n'));
           resolve(false);
           return;
         }
@@ -948,7 +961,8 @@ async function startInteractiveMenu({ dir }) {
           });
         } else if (str === 'q') {
           cleanup();
-          renderMenu(color.green('\n  Goodbye!\n\n'), { rawFrame: true });
+          process.stdout.write('\x1b[?25h\x1b[?1049l');
+          process.stdout.write(color.green('\n  Goodbye!\n\n'));
           resolve(false);
         }
       }
