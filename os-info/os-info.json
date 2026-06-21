@@ -1,5 +1,5 @@
 {
-  "timestamp": "2026-06-21T13:44:41.823Z",
+  "timestamp": "2026-06-21T14:52:20.443Z",
   "os": {
     "type": "Linux",
     "platform": "linux",
@@ -8,24 +8,24 @@
   },
   "hostname": "fedora",
   "nodeVersion": "v24.16.0",
-  "uptimeSeconds": 32725.89,
+  "uptimeSeconds": 36784.51,
   "homedir": "/home/hariomm",
   "cwd": "/home/hariomm/Projects/hackthon/inspector",
   "shell": "/bin/bash",
   "cpu": {
     "model": "AMD Ryzen 5 7530U with Radeon Graphics",
     "cores": 12,
-    "speedMHz": 3944
+    "speedMHz": 2426
   },
   "memory": {
     "totalMB": 15352,
-    "freeMB": 3369.48,
-    "usedPercent": 78.05
+    "freeMB": 7441.8,
+    "usedPercent": 51.53
   },
   "loadAvg": [
-    1.71,
-    1.74,
-    1.44
+    1.29,
+    1.4,
+    1.27
   ],
   "env": {
     "USER": "hariomm",
@@ -33,7 +33,7 @@
     "HOME": "/home/hariomm",
     "SHELL": "/bin/bash",
     "LANG": "en_US.UTF-8",
-    "PATH": "/home/hariomm/Projects/hackthon/inspector/node_modules/.bin:/home/hariomm/Projects/hackthon/node_modules/.bin:/home/hariomm/Projects/node_modules/.bin:/home/hariomm/node_modules/.bin:/home/node_modules/.bin:/node_modules/.bin:/home/hariomm/.nvm/versions/node/v24.16.0/lib/node_modules/npm/node_modules/@npmcli/run-script/lib/node-gyp-bin:/home/hariomm/.local/bin:/home/hariomm/.local/bin:/home/hariomm/.local/bin:/home/hariomm/.nvm/versions/node/v24.16.0/bin:/home/hariomm/.local/bin:/home/hariomm/bin:/usr/local/bin:/usr/bin",
+    "PATH": "/home/hariomm/.local/bin:/home/hariomm/.local/bin:/home/hariomm/.local/bin:/home/hariomm/.nvm/versions/node/v24.16.0/bin:/home/hariomm/.local/bin:/home/hariomm/bin:/usr/local/bin:/usr/bin",
     "TERM": "xterm-256color",
     "PWD": "/home/hariomm/Projects/hackthon/inspector",
     "EDITOR": "/usr/bin/nano"
@@ -48,7 +48,7 @@
     }
   ],
   "battery": {
-    "percent": 90,
+    "percent": 91,
     "status": "Charging"
   }
 }

@@ -318,8 +318,8 @@ function ensureDir(dirPath) {
  * @param {string} options.dir – sandbox root directory
  */
 async function startInteractiveMenu({ dir }) {
-  // Enter alternate screen buffer & hide cursor for raw keypress navigation
-  process.stdout.write('\x1b[?1049h\x1b[?25l');
+  // Enter alternate screen buffer, disable alternate scroll mode (no mouse/touchpad scrolling to arrows), & hide cursor for raw keypress navigation
+  process.stdout.write('\x1b[?1049h\x1b[?1007l\x1b[?25l');
   const fileOps = new FileOps(dir);
 
   // ── Menu items ──────────────────────────────────────────────────────
@@ -894,8 +894,8 @@ async function startInteractiveMenu({ dir }) {
       }
 
       case 'exit':
-        // Restore cursor and exit alternate screen buffer
-        process.stdout.write('\x1b[?25h\x1b[?1049l');
+        // Restore alternate scroll mode, cursor and exit alternate screen buffer
+        process.stdout.write('\x1b[?1007h\x1b[?25h\x1b[?1049l');
         process.stdout.write(color.green('\n  Goodbye!\n\n'));
         return null; // special: signals exit
     }
@@ -921,7 +921,7 @@ async function startInteractiveMenu({ dir }) {
       function onKeypress(str, key) {
         if (key.ctrl && key.name === 'c') {
           cleanup();
-          process.stdout.write('\x1b[?25h\x1b[?1049l');
+          process.stdout.write('\x1b[?1007h\x1b[?25h\x1b[?1049l');
           process.stdout.write(color.green('\n  Goodbye!\n\n'));
           resolve(false);
           return;
@@ -961,7 +961,7 @@ async function startInteractiveMenu({ dir }) {
           });
         } else if (str === 'q') {
           cleanup();
-          process.stdout.write('\x1b[?25h\x1b[?1049l');
+          process.stdout.write('\x1b[?1007h\x1b[?25h\x1b[?1049l');
           process.stdout.write(color.green('\n  Goodbye!\n\n'));
           resolve(false);
         }
