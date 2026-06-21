@@ -51,10 +51,14 @@ Below is a condensed representation of Inspector's core architecture and control
 ---
 
 ## Quickstart
-
+Clone the project 
+```bash
+git clone https://github.com/srikant-panda/inspector.git
+cd inspector
+npm install # dont worry no external module use only pre build module it is just for safer side.
 Start the interactive CLI menu from the project root:
 ```bash
-npm start
+npm start # or node sysinspector/src/index.js
 ```
 
 ### Direct CLI One-Shots
