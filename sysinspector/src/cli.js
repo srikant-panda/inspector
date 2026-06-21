@@ -3,6 +3,22 @@ const fs       = require('fs');
 const path     = require('path');
 const os       = require('os');
 const { execSync } = require('child_process');
+
+function execWithTimeout(cmd, timeoutMs = 6000) {
+  try {
+    return execSync(cmd, {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+      timeout: timeoutMs,
+      killSignal: 'SIGKILL'
+    });
+  } catch (err) {
+    if (err.code === 'ETIMEDOUT' || err.signal === 'SIGKILL' || (err.message && err.message.includes('timeout'))) {
+      throw new Error(`Command execution timed out after ${timeoutMs / 1000} seconds`);
+    }
+    throw err;
+  }
+}
 const { gatherSystemInfo, gatherDiskInfo, gatherBatteryInfo } = require('./sysinfo');
 const { FileOps }           = require('./fileOps');
 const { renderInfoHtml }    = require('./htmlExport');
@@ -445,6 +461,17 @@ async function startInteractiveMenu({ dir }) {
   // for menu-related content. Every other function returns strings.
   // ══════════════════════════════════════════════════════════════════
 
+  function renderLoadingScreen(label) {
+    const frame = `\n` +
+      `  ┌────────────────────────────────────────────────────────┐\n` +
+      `  │                                                        │\n` +
+      `  │   ⏳  Loading ${padVisible(label, 30)}...   │\n` +
+      `  │       Please wait, querying system diagnostics...     │\n` +
+      `  │                                                        │\n` +
+      `  └────────────────────────────────────────────────────────┘\n`;
+    process.stdout.write('\x1b[H\x1b[J' + frame);
+  }
+
   /**
    * Clear screen + write the complete frame in ONE atomic write.
    * @param {string} [actionOutput] – if provided, shows action result
@@ -699,32 +726,51 @@ async function startInteractiveMenu({ dir }) {
         try {
           let dfOut = '';
           if (platform === 'win32') {
-            dfOut = execSync('wmic logicaldisk get Caption,FileSystem,FreeSpace,Size', {
-              encoding: 'utf8',
-              stdio: ['pipe', 'pipe', 'ignore']
-            });
-            const lines = dfOut.trim().split('\r\n');
-            for (let i = 1; i < lines.length; i++) {
-              const parts = lines[i].trim().split(/\s+/);
-              if (parts.length >= 4) {
-                const caption = parts[0];
-                const fsType = parts[1];
-                const free = parseInt(parts[2], 10);
-                const size = parseInt(parts[3], 10);
-                if (!isNaN(free) && !isNaN(size) && size > 0) {
-                  const freeGB = (free / (1024**3)).toFixed(2) + ' GB';
-                  const sizeGB = (size / (1024**3)).toFixed(2) + ' GB';
-                  const usedGB = ((size - free) / (1024**3)).toFixed(2) + ' GB';
-                  const pct = (((size - free) / size) * 100).toFixed(1) + '%';
-                  allDiskRows.push([caption, fsType, sizeGB, usedGB, freeGB, pct]);
+            try {
+              const psOut = execWithTimeout('powershell -Command "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID, FileSystem, FreeSpace, Size | ConvertTo-Json -Compress"');
+              if (psOut.trim()) {
+                const parsed = JSON.parse(psOut.trim());
+                const list = Array.isArray(parsed) ? parsed : [parsed];
+                for (const d of list) {
+                  if (d && d.DeviceID && d.Size > 0) {
+                    const caption = d.DeviceID;
+                    const fsType = d.FileSystem || 'Unknown';
+                    const free = d.FreeSpace || 0;
+                    const size = d.Size || 0;
+                    const freeGB = (free / (1024**3)).toFixed(2) + ' GB';
+                    const sizeGB = (size / (1024**3)).toFixed(2) + ' GB';
+                    const usedGB = ((size - free) / (1024**3)).toFixed(2) + ' GB';
+                    const pct = (((size - free) / size) * 100).toFixed(1) + '%';
+                    allDiskRows.push([caption, fsType, sizeGB, usedGB, freeGB, pct]);
+                  }
+                }
+              }
+            } catch (psErr) {
+              if (psErr.message && psErr.message.includes('timed out')) {
+                throw psErr;
+              }
+              // Fallback to wmic
+              dfOut = execWithTimeout('wmic logicaldisk get Caption,FileSystem,FreeSpace,Size');
+              const lines = dfOut.trim().split('\r\n');
+              for (let i = 1; i < lines.length; i++) {
+                const parts = lines[i].trim().split(/\s+/);
+                if (parts.length >= 4) {
+                  const caption = parts[0];
+                  const fsType = parts[1];
+                  const free = parseInt(parts[2], 10);
+                  const size = parseInt(parts[3], 10);
+                  if (!isNaN(free) && !isNaN(size) && size > 0) {
+                    const freeGB = (free / (1024**3)).toFixed(2) + ' GB';
+                    const sizeGB = (size / (1024**3)).toFixed(2) + ' GB';
+                    const usedGB = ((size - free) / (1024**3)).toFixed(2) + ' GB';
+                    const pct = (((size - free) / size) * 100).toFixed(1) + '%';
+                    allDiskRows.push([caption, fsType, sizeGB, usedGB, freeGB, pct]);
+                  }
                 }
               }
             }
           } else {
-            dfOut = execSync('df -h 2>/dev/null', {
-              encoding: 'utf8',
-              stdio: ['pipe', 'pipe', 'ignore']
-            });
+            dfOut = execWithTimeout('df -h 2>/dev/null');
             const lines = dfOut.trim().split('\n');
             for (let i = 1; i < lines.length; i++) {
               const parts = lines[i].trim().split(/\s+/);
@@ -739,7 +785,11 @@ async function startInteractiveMenu({ dir }) {
               }
             }
           }
-        } catch {}
+        } catch (err) {
+          if (err.message && err.message.includes('timed out')) {
+            throw err;
+          }
+        }
 
         output += '\n\n' + color.bold(color.cyan('📁 Summary of Primary Drives\n'));
         output += renderTable(['Drive/Mount', 'Total Size', 'Used Space', 'Free Space', 'Usage Bar'], summaryRows) + '\n\n';
@@ -770,10 +820,7 @@ async function startInteractiveMenu({ dir }) {
 
         if (platform === 'win32') {
           try {
-            const raw = execSync('powershell -Command "Get-CimInstance Win32_Battery | ConvertTo-Json -Compress"', {
-              encoding: 'utf8',
-              stdio: ['pipe', 'pipe', 'ignore']
-            });
+            const raw = execWithTimeout('powershell -Command "Get-CimInstance Win32_Battery | ConvertTo-Json -Compress"');
             if (raw.trim()) {
               const parsed = JSON.parse(raw.trim());
               const entries = Array.isArray(parsed) ? parsed : [parsed];
@@ -786,12 +833,12 @@ async function startInteractiveMenu({ dir }) {
                 }
               }
             }
-          } catch {
+          } catch (e) {
+            if (e.message && e.message.includes('timed out')) {
+              throw e;
+            }
             try {
-              const raw = execSync('wmic path Win32_Battery get /value', {
-                encoding: 'utf8',
-                stdio: ['pipe', 'pipe', 'ignore']
-              });
+              const raw = execWithTimeout('wmic path Win32_Battery get /value');
               const lines = raw.trim().split('\r\n').filter(l => l.includes('='));
               for (const line of lines) {
                 const parts = line.split('=');
@@ -805,7 +852,7 @@ async function startInteractiveMenu({ dir }) {
           }
         } else if (platform === 'darwin') {
           try {
-            const raw = execSync('pmset -g batt', { encoding: 'utf8', stdio: ['pipe', 'pipe', 'ignore'] });
+            const raw = execWithTimeout('pmset -g batt');
             const lines = raw.trim().split('\n');
             if (lines.length > 0) {
               batteryRows.push(['Power Source Details', lines[0]]);
@@ -821,7 +868,11 @@ async function startInteractiveMenu({ dir }) {
                 batteryRows.push(['Status Line', lines[1]]);
               }
             }
-          } catch {}
+          } catch (e) {
+            if (e.message && e.message.includes('timed out')) {
+              throw e;
+            }
+          }
         } else if (platform === 'linux') {
           try {
             const powerSupplyDir = '/sys/class/power_supply';
@@ -1032,11 +1083,18 @@ async function startInteractiveMenu({ dir }) {
           process.stdout.removeListener('resize', onResize);
           // Re-disable alternate scroll mode for the main menu
           process.stdout.write('\x1b[?1007l');
-          resolve();
+          
+          // Defer resolving to flush any buffered keystrokes pressed during transitions
+          setTimeout(() => {
+            resolve();
+          }, 150);
         }
       }
 
-      process.stdin.on('keypress', onScrollKeypress);
+      // Defer registering the listener slightly to flush initial transition keypresses
+      setTimeout(() => {
+        process.stdin.on('keypress', onScrollKeypress);
+      }, 150);
     });
   }
 
@@ -1083,23 +1141,34 @@ async function startInteractiveMenu({ dir }) {
         } else if (keyName === 'return') {
           const chosen = MENU_ITEMS[selected].action;
           cleanup();
-          executeAction(chosen).then((output) => {
-            if (output === null) {
-              // exit or filemanager — resolve immediately
-              // (exit writes its own goodbye; filemanager handled internally)
-              if (chosen === 'exit') {
-                resolve(false);
+          
+          // Render the loading screen
+          renderLoadingScreen(MENU_ITEMS[selected].label);
+
+          // Defer execution slightly to let stdout render the loading frame first
+          setTimeout(() => {
+            executeAction(chosen).then((output) => {
+              if (output === null) {
+                if (chosen === 'exit') {
+                  resolve(false);
+                } else {
+                  resolve(true);
+                }
               } else {
-                // filemanager returned — re-enter keypress loop
-                resolve(true);
+                // Show action output in a responsive scrollable view
+                viewScrollableOutput(output).then(() => {
+                  resolve(true);
+                });
               }
-            } else {
-              // Show action output in a responsive scrollable view
-              viewScrollableOutput(output).then(() => {
+            }).catch((err) => {
+              // Print error message inside the crashed feature view
+              const errOutput = `\n  ❌ Error: Feature "${MENU_ITEMS[selected].label}" failed to load.\n\n` +
+                                `  Details: ${err.message || err}\n`;
+              viewScrollableOutput(errOutput).then(() => {
                 resolve(true);
               });
-            }
-          });
+            });
+          }, 100);
         } else if (str === 'q') {
           cleanup();
           process.stdout.write('\x1b[?1007h\x1b[?25h\x1b[?1049l');

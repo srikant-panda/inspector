@@ -3,6 +3,22 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
+function execWithTimeout(cmd, timeoutMs = 6000) {
+  try {
+    return execSync(cmd, {
+      encoding: 'utf8',
+      stdio: ['pipe', 'pipe', 'ignore'],
+      timeout: timeoutMs,
+      killSignal: 'SIGKILL'
+    });
+  } catch (err) {
+    if (err.code === 'ETIMEDOUT' || err.signal === 'SIGKILL' || (err.message && err.message.includes('timeout'))) {
+      throw new Error(`Command execution timed out after ${timeoutMs / 1000} seconds`);
+    }
+    throw err;
+  }
+}
+
 /**
  * Wraps a function call in a try/catch so missing or unavailable OS data
  * never crashes the program. Returns `fallback` on any thrown error.
@@ -114,10 +130,7 @@ function gatherDiskInfo() {
     const platform = os.platform();
     if (platform === 'win32') {
       try {
-        const out = execSync('powershell -Command "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID, FreeSpace, Size | ConvertTo-Json -Compress"', {
-          encoding: 'utf8',
-          stdio: ['pipe', 'pipe', 'ignore'],
-        });
+        const out = execWithTimeout('powershell -Command "Get-CimInstance Win32_LogicalDisk | Select-Object DeviceID, FreeSpace, Size | ConvertTo-Json -Compress"');
         if (out.trim()) {
           const parsed = JSON.parse(out.trim());
           const list = Array.isArray(parsed) ? parsed : [parsed];
@@ -138,13 +151,13 @@ function gatherDiskInfo() {
           if (disks.length > 0) return disks;
         }
       } catch (err) {
+        if (err.message && err.message.includes('timed out')) {
+          throw err;
+        }
         // Fall back to wmic if powershell fails
       }
 
-      const out = execSync('wmic logicaldisk get Caption,FreeSpace,Size', {
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'ignore'],
-      });
+      const out = execWithTimeout('wmic logicaldisk get Caption,FreeSpace,Size');
       const lines = out.replace(/\r/g, '').trim().split('\n');
       const disks = [];
       for (let i = 1; i < lines.length; i++) {
@@ -165,10 +178,7 @@ function gatherDiskInfo() {
       }
       return disks.length > 0 ? disks : 'N/A';
     } else {
-      const out = execSync('df -h / 2>/dev/null || df -h', {
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'ignore'],
-      });
+      const out = execWithTimeout('df -h / 2>/dev/null || df -h');
       const lines = out.trim().split('\n');
       const disks = [];
       for (let i = 1; i < lines.length; i++) {
@@ -195,6 +205,9 @@ function gatherDiskInfo() {
       return disks.length > 0 ? disks : 'N/A';
     }
   } catch (err) {
+    if (err.message && err.message.includes('timed out')) {
+      throw err;
+    }
     return 'N/A';
   }
 }
@@ -207,10 +220,7 @@ function gatherBatteryInfo() {
     const platform = os.platform();
     if (platform === 'win32') {
       try {
-        const out = execSync('powershell -Command "Get-CimInstance Win32_Battery | Select-Object BatteryStatus, EstimatedChargeRemaining | ConvertTo-Json -Compress"', {
-          encoding: 'utf8',
-          stdio: ['pipe', 'pipe', 'ignore'],
-        });
+        const out = execWithTimeout('powershell -Command "Get-CimInstance Win32_Battery | Select-Object BatteryStatus, EstimatedChargeRemaining | ConvertTo-Json -Compress"');
         if (out.trim()) {
           const parsed = JSON.parse(out.trim());
           const list = Array.isArray(parsed) ? parsed : [parsed];
@@ -228,14 +238,14 @@ function gatherBatteryInfo() {
           }
         }
       } catch (err) {
+        if (err.message && err.message.includes('timed out')) {
+          throw err;
+        }
         // Fall back to wmic if powershell fails
       }
 
       try {
-        const out = execSync('wmic path Win32_Battery get EstimatedChargeRemaining,BatteryStatus', {
-          encoding: 'utf8',
-          stdio: ['pipe', 'pipe', 'ignore'],
-        });
+        const out = execWithTimeout('wmic path Win32_Battery get EstimatedChargeRemaining,BatteryStatus');
         const lines = out.replace(/\r/g, '').trim().split('\n');
         if (lines.length >= 2) {
           const parts = lines[1].trim().split(/\s+/);
@@ -250,13 +260,14 @@ function gatherBatteryInfo() {
             return { percent, status };
           }
         }
-      } catch (err) {}
+      } catch (err) {
+        if (err.message && err.message.includes('timed out')) {
+          throw err;
+        }
+      }
       return 'N/A';
     } else if (platform === 'darwin') {
-      const out = execSync('pmset -g batt', {
-        encoding: 'utf8',
-        stdio: ['pipe', 'pipe', 'ignore'],
-      });
+      const out = execWithTimeout('pmset -g batt');
       const match = out.match(/(\d+)%;\s+(\w+);/);
       if (match) {
         const percent = parseInt(match[1], 10);
@@ -287,6 +298,9 @@ function gatherBatteryInfo() {
     }
     return 'N/A';
   } catch (err) {
+    if (err.message && err.message.includes('timed out')) {
+      throw err;
+    }
     return 'N/A';
   }
 }
