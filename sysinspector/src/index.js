@@ -12,8 +12,7 @@
 
 const path = require('path');
 const { gatherSystemInfo }         = require('./sysinfo');
-const { startInteractiveMenu }     = require('./cli');
-const { printSystemInfo }          = require('./cli');
+const { startInteractiveMenu, showOsInfo, showCpuInfo } = require('./cli');
 
 // ---------------------------------------------------------------------------
 // Argument parsing (lightweight, no external deps)
@@ -51,7 +50,9 @@ async function main() {
     if (opts.json) {
       console.log(JSON.stringify(info, null, 2));
     } else {
-      printSystemInfo(info);
+      console.log(showOsInfo(info));
+      console.log();
+      console.log(showCpuInfo(info));
     }
     return; // exit cleanly
   }

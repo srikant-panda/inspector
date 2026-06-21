@@ -1,4 +1,4 @@
-# GlassBox — Task Log
+# Inspector — Task Log
 
 ## Core Features
 
@@ -16,13 +16,22 @@
 - [x] Replace numbered CLI menu with arrow-key selector
 - [x] Handle raw mode toggling for sub-prompts and file manager handoff
 - [x] Add safety guards for undefined str and terminal cleanup on exit
-- [ ] Add neofetch-style OS Info view with JSON + HTML export
-- [ ] Add neofetch-style CPU Info view with JSON + HTML export
-- [ ] Add Network view with tree of interface names + flat detail blocks
-- [ ] Add responsive preview pane to arrow-key menu (side-by-side vs stacked)
-- [ ] Create shared htmlExport.js module for HTML report generation
-- [ ] Rebrand terminal headers from GlassBox to Inspector
-- [ ] Add platform-aware File Manager intro line
+- [x] Add neofetch-style OS Info view with JSON + HTML export
+- [x] Add neofetch-style CPU Info view with JSON + HTML export
+- [x] Add Network view with tree of interface names + flat detail blocks
+- [x] Add responsive preview pane to arrow-key menu (side-by-side vs stacked)
+- [x] Create shared htmlExport.js module for HTML report generation
+- [x] Rebrand terminal headers from GlassBox to Inspector
+- [x] Add platform-aware File Manager intro line
+
+## Bug Fixes
+
+- [x] Fix menu redraw: use clear-screen (\x1b[2J\x1b[H) instead of cursor-back for true in-place updates
+- [x] Fix view functions to return strings composed into single frame write (no scattered console.log)
+- [x] Fix Network tree to use proper ├─/└─ branch characters within the frame write cycle
+- [x] Add wait-for-key after action output before menu redraw
+- [x] Consolidate ALL output into single renderMenu() — eliminate scattered writes entirely
+- [x] Kill readline during keypress mode to prevent stdout resize interference
 
 ## File Manager
 

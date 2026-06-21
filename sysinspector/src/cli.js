@@ -1,8 +1,10 @@
 const readline = require('readline');
 const fs       = require('fs');
 const path     = require('path');
-const { gatherSystemInfo } = require('./sysinfo');
+const os       = require('os');
+const { gatherSystemInfo, gatherDiskInfo, gatherBatteryInfo } = require('./sysinfo');
 const { FileOps }           = require('./fileOps');
+const { renderInfoHtml }    = require('./htmlExport');
 
 // Terminal visual styling helper
 const color = {
@@ -16,47 +18,241 @@ const color = {
   white: (str) => `\x1b[37m${str}\x1b[0m`,
   bold: (str) => `\x1b[1m${str}\x1b[0m`,
   inverse: (str) => `\x1b[7m${str}\x1b[27m`,
+  dim: (str) => `\x1b[2m${str}\x1b[22m`,
 };
 
+// ── ASCII logo for neofetch-style views ─────────────────────────────────
+const LOGO = [
+  '   ┌─┬─┬─┬─┐',
+  ' ┌─┤ · · · ├─┐',
+  ' ├─┤  ▓▓▓   ├─┤',
+  ' └─┤ · · · ├─┘',
+  '   └─┴─┴─┴─┘',
+];
 
-/**
- * Pretty-prints a system-info object to stdout in a human-readable format.
- */
-function printSystemInfo(info) {
-  console.log('\n╔══════════════════════════════════════════════════════════╗');
-  console.log('║  SysInspector — System Snapshot                          ║');
-  console.log('╚══════════════════════════════════════════════════════════╝\n');
+// ── Helpers ──────────────────────────────────────────────────────────────
 
-  console.log(`  Timestamp    : ${info.timestamp}`);
-  console.log(`  Hostname     : ${info.hostname}`);
-  console.log(`  OS           : ${info.os.type} ${info.os.release} (${info.os.platform}/${info.os.arch})`);
-  console.log(`  Node.js      : ${info.nodeVersion}`);
-  console.log(`  Uptime (s)   : ${info.uptimeSeconds}`);
-  console.log(`  Home Dir     : ${info.homedir}`);
-  console.log(`  CWD          : ${info.cwd}`);
+function formatUptime(seconds) {
+  if (typeof seconds !== 'number' || isNaN(seconds)) return 'N/A';
+  const d = Math.floor(seconds / 86400);
+  const h = Math.floor((seconds % 86400) / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const parts = [];
+  if (d > 0) parts.push(`${d}d`);
+  if (h > 0 || d > 0) parts.push(`${h}h`);
+  parts.push(`${m}m`);
+  return parts.join(' ');
+}
 
-  console.log('\n  CPU');
-  console.log(`    Model      : ${info.cpu.model}`);
-  console.log(`    Cores      : ${info.cpu.cores}`);
-  console.log(`    Speed (MHz): ${info.cpu.speedMHz}`);
+function getPlatformName() {
+  const p = os.platform();
+  if (p === 'linux') return 'Linux';
+  if (p === 'darwin') return 'macOS';
+  if (p === 'win32') return 'Windows';
+  return p;
+}
 
-  console.log('\n  Memory');
-  console.log(`    Total (MB) : ${info.memory.totalMB}`);
-  console.log(`    Free  (MB) : ${info.memory.freeMB}`);
-  console.log(`    Used  (%)  : ${info.memory.usedPercent}`);
+/** Visible string length, ignoring ANSI escape codes */
+function visibleLen(str) {
+  return str.replace(/\x1b\[[0-9;]*m/g, '').length;
+}
 
-  const envKeys = Object.keys(info.env);
-  if (envKeys.length > 0) {
-    console.log('\n  Environment (whitelisted)');
-    for (const key of envKeys) {
-      const display = key === 'PATH'
-        ? info.env[key].split(path.delimiter).join(`\n${' '.repeat(15)}`)
-        : info.env[key];
-      console.log(`    ${key.padEnd(10)} : ${display}`);
+/** Pad a string to a visible width, accounting for ANSI codes */
+function padVisible(str, width) {
+  const diff = width - visibleLen(str);
+  return diff > 0 ? str + ' '.repeat(diff) : str;
+}
+
+// ── Neofetch-style view formatters ──────────────────────────────────────
+
+function showOsInfo(info) {
+  const hostname = info.hostname !== 'N/A' ? info.hostname : 'unknown';
+  const header = `inspector@${hostname}`;
+  const underline = '─'.repeat(header.length);
+
+  const right = [
+    color.bold(color.cyan(header)),
+    color.dim(underline),
+    `💻 ${color.bold('OS:')}        ${info.os.type} ${info.os.release} (${info.os.platform}/${info.os.arch})`,
+    `🏷️  ${color.bold('Hostname:')}  ${info.hostname}`,
+    `⏱️  ${color.bold('Uptime:')}    ${formatUptime(info.uptimeSeconds)}`,
+    `👤 ${color.bold('User:')}      ${info.env.USER || info.env.USERNAME || 'N/A'}`,
+    `🏠 ${color.bold('Home Dir:')}  ${info.homedir}`,
+    `🐚 ${color.bold('Shell:')}     ${path.basename(info.shell !== 'N/A' ? info.shell : '')}`,
+    `🟢 ${color.bold('Node.js:')}   ${info.nodeVersion}`,
+    `🔑 ${color.bold('Env Vars:')}  ${Object.keys(info.env).length} captured (full list in export)`,
+  ];
+
+  const lines = [];
+  const maxRows = Math.max(LOGO.length, right.length);
+  for (let i = 0; i < maxRows; i++) {
+    const logo = color.magenta(padVisible(LOGO[i] || '', 18));
+    const info = right[i] || '';
+    lines.push(`  ${logo}   ${info}`);
+  }
+  return lines.join('\n');
+}
+
+function showCpuInfo(info) {
+  const header = 'CPU Info';
+  const underline = '─'.repeat(header.length);
+
+  // Load average — N/A on Windows if all zeros
+  let loadStr = 'N/A';
+  if (Array.isArray(info.loadAvg)) {
+    if (os.platform() === 'win32' && info.loadAvg.every(v => v === 0)) {
+      loadStr = 'N/A (not available on Windows)';
+    } else {
+      loadStr = info.loadAvg.join(', ');
     }
   }
-  console.log();
+
+  const right = [
+    color.bold(color.cyan(header)),
+    color.dim(underline),
+    `🧠 ${color.bold('Model:')}        ${info.cpu.model}`,
+    `⚙️  ${color.bold('Architecture:')} ${info.os.arch}`,
+    `🔢 ${color.bold('Cores:')}        ${info.cpu.cores}`,
+    `⚡ ${color.bold('Speed:')}        ${info.cpu.speedMHz} MHz`,
+    `📊 ${color.bold('Load Avg:')}     ${loadStr}`,
+  ];
+
+  const lines = [];
+  const maxRows = Math.max(LOGO.length, right.length);
+  for (let i = 0; i < maxRows; i++) {
+    const logo = color.magenta(padVisible(LOGO[i] || '', 18));
+    const detail = right[i] || '';
+    lines.push(`  ${logo}   ${detail}`);
+  }
+  return lines.join('\n');
 }
+
+function showNetwork() {
+  const ifaces = os.networkInterfaces();
+  const names = Object.keys(ifaces);
+
+  let out = `\n  ${color.bold(color.cyan('🌐 Network'))}\n\n`;
+
+  // Tree of interface names only — proper ├─ / └─ branch characters
+  for (let i = 0; i < names.length; i++) {
+    const isLast = i === names.length - 1;
+    const branch = isLast ? '└─' : '├─';
+    out += `    ${branch} ${color.green(names[i])}\n`;
+  }
+
+  // Flat detail blocks below the tree
+  out += '\n';
+  for (const name of names) {
+    out += `  ${color.bold(name)}\n`;
+    const addrs = ifaces[name];
+    const ipv4 = addrs.find(a => a.family === 'IPv4');
+    const mac = addrs[0];
+    out += `    📡 ${color.bold('IPv4:')}  ${ipv4 ? ipv4.address : 'N/A'}\n`;
+    out += `    🔗 ${color.bold('MAC:')}   ${mac ? mac.mac : 'N/A'}\n`;
+    out += '\n';
+  }
+  return out;
+}
+
+function makeProgressBar(percent, width = 20) {
+  if (typeof percent !== 'number' || isNaN(percent)) return '';
+  const filledCount = Math.round((percent / 100) * width);
+  const emptyCount = width - filledCount;
+  return `[${'█'.repeat(filledCount)}${'░'.repeat(emptyCount)}] ${percent.toFixed(1)}%`;
+}
+
+function showDiskInfo(disks) {
+  const header = 'Disk Info';
+  const underline = '─'.repeat(header.length);
+  const right = [
+    color.bold(color.cyan(header)),
+    color.dim(underline),
+  ];
+
+  if (disks === 'N/A' || !Array.isArray(disks) || disks.length === 0) {
+    right.push('  No disk information available.');
+  } else {
+    for (const d of disks) {
+      right.push(`📁 ${color.bold('Mount/Drive:')}  ${d.drive}`);
+      right.push(`  💾 ${color.bold('Total:')} ${d.totalGB}  ${color.bold('Used:')} ${d.usedGB}  ${color.bold('Free:')} ${d.freeGB}`);
+      if (typeof d.usedPct === 'number') {
+        right.push(`  📊 ${color.bold('Usage:')} ${makeProgressBar(d.usedPct, 15)}`);
+      } else {
+        right.push(`  📊 ${color.bold('Usage:')} ${d.usedPct}`);
+      }
+      right.push('');
+    }
+  }
+
+  const lines = [];
+  const maxRows = Math.max(LOGO.length, right.length);
+  for (let i = 0; i < maxRows; i++) {
+    const logo = color.magenta(padVisible(LOGO[i] || '', 18));
+    const detail = right[i] || '';
+    lines.push(`  ${logo}   ${detail}`);
+  }
+  return lines.join('\n');
+}
+
+function showMemoryInfo(info) {
+  const header = 'Memory Info';
+  const underline = '─'.repeat(header.length);
+  const totalGB = (info.memory.totalMB / 1024).toFixed(2);
+  const freeGB = (info.memory.freeMB / 1024).toFixed(2);
+  const usedGB = ((info.memory.totalMB - info.memory.freeMB) / 1024).toFixed(2);
+
+  const right = [
+    color.bold(color.cyan(header)),
+    color.dim(underline),
+    `📦 ${color.bold('Total RAM:')} ${info.memory.totalMB} MB (${totalGB} GB)`,
+    `🟢 ${color.bold('Free RAM:')}  ${info.memory.freeMB} MB (${freeGB} GB)`,
+    `🔴 ${color.bold('Used RAM:')}  ${(info.memory.totalMB - info.memory.freeMB).toFixed(2)} MB (${usedGB} GB)`,
+    `📊 ${color.bold('Usage:')}     ${typeof info.memory.usedPercent === 'number' ? makeProgressBar(info.memory.usedPercent, 20) : info.memory.usedPercent}`,
+  ];
+
+  const lines = [];
+  const maxRows = Math.max(LOGO.length, right.length);
+  for (let i = 0; i < maxRows; i++) {
+    const logo = color.magenta(padVisible(LOGO[i] || '', 18));
+    const detail = right[i] || '';
+    lines.push(`  ${logo}   ${detail}`);
+  }
+  return lines.join('\n');
+}
+
+function showBatteryInfo(battery) {
+  const header = 'Battery Info';
+  const underline = '─'.repeat(header.length);
+  const right = [
+    color.bold(color.cyan(header)),
+    color.dim(underline),
+  ];
+
+  if (battery === 'N/A' || !battery || typeof battery.percent !== 'number') {
+    right.push('  🔋 Status: N/A (Desktop/AC powered or no battery detected)');
+  } else {
+    const batteryIcon = battery.status === 'Charging' ? '⚡🔋' : '🔋';
+    right.push(`${batteryIcon} ${color.bold('Level:')}  ${makeProgressBar(battery.percent, 20)}`);
+    right.push(`🏷️  ${color.bold('Status:')} ${battery.status}`);
+  }
+
+  const lines = [];
+  const maxRows = Math.max(LOGO.length, right.length);
+  for (let i = 0; i < maxRows; i++) {
+    const logo = color.magenta(padVisible(LOGO[i] || '', 18));
+    const detail = right[i] || '';
+    lines.push(`  ${logo}   ${detail}`);
+  }
+  return lines.join('\n');
+}
+
+// ── Export helper ────────────────────────────────────────────────────────
+
+function ensureDir(dirPath) {
+  fs.mkdirSync(dirPath, { recursive: true });
+}
+
+// ── Interactive Menu ─────────────────────────────────────────────────────
 
 /**
  * Launches the interactive readline menu loop.
@@ -67,157 +263,349 @@ function printSystemInfo(info) {
 async function startInteractiveMenu({ dir }) {
   const fileOps = new FileOps(dir);
 
-  // ── Menu items ─────────────────────────────────────────────────────────
+  // ── Menu items ──────────────────────────────────────────────────────
+  const platformName = getPlatformName();
   const MENU_ITEMS = [
-    { label: 'Show system info (console)',       action: '1' },
-    { label: 'Export system info as JSON file',   action: '2' },
-    { label: 'List files in sandbox directory',   action: '3' },
-    { label: 'Show session changelog',            action: '4' },
-    { label: 'Open Cross-Platform File Manager',  action: '5' },
-    { label: 'Exit',                              action: '6' },
+    { label: 'OS Info', action: 'os-info' },
+    { label: 'CPU Info', action: 'cpu-info' },
+    { label: 'Memory Info', action: 'memory-info' },
+    { label: 'Disk Info', action: 'disk-info' },
+    { label: 'Battery Info', action: 'battery-info' },
+    { label: 'Network', action: 'network' },
+    { label: 'List files in sandbox directory', action: 'list' },
+    { label: 'Show session changelog', action: 'changelog' },
+    { label: 'Open File Manager', action: 'filemanager' },
+    { label: 'Exit', action: 'exit' },
   ];
 
-  let selected = 0;
-  let menuLineCount = 0;
-  let rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-
-  // ── Draw menu (redraws in-place via ANSI escape) ─────────────────────
-  function drawMenu() {
-    if (menuLineCount > 0) {
-      process.stdout.write(`\x1b[${menuLineCount}A\x1b[J`);
-    }
-    let out = '';
-    let lines = 0;
-    out += `  Sandbox root: ${color.cyan(fileOps.root)}\n`;
-    lines++;
-    out += `  ${color.bold('↑/↓ or j/k to navigate · Enter to select · q to quit')}\n`;
-    lines++;
-    for (let i = 0; i < MENU_ITEMS.length; i++) {
-      const item = MENU_ITEMS[i];
-      if (i === selected) {
-        out += color.inverse(color.cyan(`  ➤ ${item.label}           `)) + '\n';
-      } else {
-        out += `    ${item.label}\n`;
+  /**
+   * Generates a dynamic, real-time preview (array of lines) for the selected action.
+   */
+  function getDynamicPreview(action) {
+    switch (action) {
+      case 'os-info': {
+        const info = gatherSystemInfo();
+        return showOsInfo(info).split('\n');
       }
-      lines++;
+      case 'cpu-info': {
+        const info = gatherSystemInfo();
+        return showCpuInfo(info).split('\n');
+      }
+      case 'memory-info': {
+        const info = gatherSystemInfo();
+        return showMemoryInfo(info).split('\n');
+      }
+      case 'disk-info': {
+        const disks = gatherDiskInfo();
+        return showDiskInfo(disks).split('\n');
+      }
+      case 'battery-info': {
+        const battery = gatherBatteryInfo();
+        return showBatteryInfo(battery).split('\n');
+      }
+      case 'network': {
+        const ifaces = os.networkInterfaces();
+        const names = Object.keys(ifaces);
+        const lines = [color.bold(color.cyan('🌐 Network Interfaces'))];
+        for (let i = 0; i < names.length; i++) {
+          const isLast = i === names.length - 1;
+          const branch = isLast ? '└─' : '├─';
+          const name = names[i];
+          const addrs = ifaces[name] || [];
+          const ipv4 = addrs.find(a => a.family === 'IPv4');
+          const ipStr = ipv4 ? ipv4.address : 'N/A';
+          lines.push(`  ${branch} ${color.green(name)} (${ipStr})`);
+        }
+        return lines;
+      }
+      case 'list': {
+        try {
+          const entries = fileOps.list('.');
+          const lines = [color.bold('Sandbox Root Files ("."):')];
+          if (entries.length === 0) {
+            lines.push('  (empty directory)');
+          } else {
+            const limit = 10;
+            const shown = entries.slice(0, limit);
+            for (const e of shown) {
+              const icon = e.type === 'directory' ? '📁' : '📄';
+              lines.push(`  ${icon} ${e.name}`);
+            }
+            if (entries.length > limit) {
+              lines.push(`  ... and ${entries.length - limit} more entries`);
+            }
+          }
+          return lines;
+        } catch (err) {
+          return [`Error listing root:`, `  ${err.message}`];
+        }
+      }
+      case 'changelog': {
+        const log = fileOps.getChangelog();
+        const lines = [color.bold('Session Changelog:')];
+        if (log.length === 0) {
+          lines.push('  (no actions recorded this session)');
+        } else {
+          const limit = 8;
+          const shown = log.slice(-limit);
+          for (const entry of shown) {
+            const timeStr = entry.time ? entry.time.slice(11, 19) : 'N/A';
+            lines.push(`  [${timeStr}] ${entry.action.toUpperCase()} - ${entry.target}`);
+          }
+          if (log.length > limit) {
+            lines.push(`  ... and ${log.length - limit} older actions`);
+          }
+        }
+        return lines;
+      }
+      case 'filemanager': {
+        return [
+          color.bold('Sandboxed CRUD File Manager'),
+          'Press Enter to launch.',
+          '',
+          `Supports all ${platformName} commands:`,
+          '  cd, ls/dir, cat/type, rm/del,',
+          '  cp/copy, mv/move/ren, mkdir/md.',
+        ];
+      }
+      case 'exit': {
+        return [
+          color.bold('Exit Inspector'),
+          'Press Enter to quit and return to terminal.',
+        ];
+      }
+      default:
+        return [];
     }
-    process.stdout.write(out);
-    menuLineCount = lines;
   }
 
-  // ── Helper: get text input with raw-mode toggling ────────────────────
+  let selected = 0;
+
+  // ══════════════════════════════════════════════════════════════════
+  // SINGLE RENDER FUNCTION — the ONLY place that writes to stdout
+  // for menu-related content. Every other function returns strings.
+  // ══════════════════════════════════════════════════════════════════
+
+  /**
+   * Clear screen + write the complete frame in ONE atomic write.
+   * @param {string} [actionOutput] – if provided, shows action result
+   *   instead of the menu (with a dismiss prompt)
+   * @param {object} [options] – customization options
+   * @param {boolean} [options.rawFrame] – if true, output actionOutput exactly without dismiss prompt
+   */
+  function renderMenu(actionOutput, options = {}) {
+    let frame;
+
+    if (actionOutput !== undefined) {
+      if (options.rawFrame) {
+        frame = actionOutput;
+      } else {
+        // Show action result on clean screen
+        frame = actionOutput + '\n\n' + color.dim('  Press any key to return to menu...') + '\n';
+      }
+    } else {
+      // Build the menu frame
+      const cols = process.stdout.columns || 80;
+      const isWide = cols >= 115;
+      const previewLines = getDynamicPreview(MENU_ITEMS[selected].action);
+
+      const headerLines = [];
+      headerLines.push(`  Sandbox root: ${color.cyan(fileOps.root)}`);
+      headerLines.push(`  ${color.bold('↑/↓ or j/k · Enter to select · q to quit')}`);
+      headerLines.push('');
+
+      const menuLines = [];
+      for (let i = 0; i < MENU_ITEMS.length; i++) {
+        if (i === selected) {
+          menuLines.push(color.inverse(color.cyan(`  ➤ ${MENU_ITEMS[i].label}  `)));
+        } else {
+          menuLines.push(`    ${MENU_ITEMS[i].label}`);
+        }
+        if (i < MENU_ITEMS.length - 1) {
+          menuLines.push(''); // add empty line to increase height/spacing of menu
+        }
+      }
+
+      const borderedPreview = previewLines.map(l =>
+        l ? color.dim('│ ') + l : color.dim('│')
+      );
+
+      frame = '';
+      for (const line of headerLines) {
+        frame += line + '\n';
+      }
+
+      if (isWide) {
+        const menuColWidth = 38;
+        const maxRows = Math.max(menuLines.length, borderedPreview.length);
+        for (let i = 0; i < maxRows; i++) {
+          const left = padVisible(menuLines[i] || '', menuColWidth);
+          const right = borderedPreview[i] || '';
+          frame += left + '  ' + right + '\n';
+        }
+      } else {
+        for (const line of menuLines) {
+          frame += line + '\n';
+        }
+        frame += '\n';
+        for (const line of borderedPreview) {
+          frame += '  ' + line + '\n';
+        }
+      }
+    }
+
+    // THE ONLY write for menu rendering — clear screen + full frame, one call
+    process.stdout.write('\x1b[2J\x1b[H' + frame);
+  }
+
+  // ── Helper: get text input (creates temporary readline, closes it) ─
   async function getTextInput(prompt) {
+    // Exit raw mode for text input
     if (process.stdin.isTTY) process.stdin.setRawMode(false);
-    rl.close();
-    rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     const askQ = (q) => new Promise((r) => rl.question(q, r));
     const result = await askQ(prompt);
     rl.close();
+    // Re-enable raw mode for keypress navigation
     if (process.stdin.isTTY) process.stdin.setRawMode(true);
-    rl = readline.createInterface({ input: process.stdin, output: process.stdout });
     return result;
   }
 
-  // ── Action dispatcher ─────────────────────────────────────────────────
+  // ── Action dispatcher (returns output string, NEVER writes to stdout) ─
   async function executeAction(action) {
-    console.log();
-
     switch (action) {
-      // ── Show system info ────────────────────────────────────────────
-      case '1': {
+      case 'os-info': {
         const info = gatherSystemInfo();
-        printSystemInfo(info);
-        break;
+        let output = showOsInfo(info);
+        const exportDir = path.join(fileOps.root, 'os-info');
+        ensureDir(exportDir);
+        fs.writeFileSync(path.join(exportDir, 'os-info.json'), JSON.stringify(info, null, 2), 'utf8');
+        fs.writeFileSync(path.join(exportDir, 'os-info.html'), renderInfoHtml('OS Info', info), 'utf8');
+        output += '\n' + color.green('\n  ✔ Full details exported to os-info/os-info.json and os-info/os-info.html');
+        return output;
       }
 
-      // ── Export system info as JSON ──────────────────────────────────
-      case '2': {
+      case 'cpu-info': {
         const info = gatherSystemInfo();
-        const fileName = `sysinfo-${Date.now()}.json`;
-        try {
-          fileOps.create(fileName, JSON.stringify(info, null, 2));
-          console.log(`\n  ✔ Exported to ${path.join(fileOps.root, fileName)}`);
-        } catch (err) {
-          const absPath = path.join(fileOps.root, fileName);
-          fs.writeFileSync(absPath, JSON.stringify(info, null, 2), 'utf8');
-          console.log(`\n  ✔ Exported to ${absPath}`);
-        }
-        break;
+        let output = showCpuInfo(info);
+        const exportDir = path.join(fileOps.root, 'cpu-info');
+        ensureDir(exportDir);
+        const cpuData = {
+          model: info.cpu.model,
+          architecture: info.os.arch,
+          cores: info.cpu.cores,
+          speedMHz: info.cpu.speedMHz,
+          loadAvg: info.loadAvg,
+          memory: info.memory,
+        };
+        fs.writeFileSync(path.join(exportDir, 'cpu-info.json'), JSON.stringify(cpuData, null, 2), 'utf8');
+        fs.writeFileSync(path.join(exportDir, 'cpu-info.html'), renderInfoHtml('CPU Info', cpuData), 'utf8');
+        output += '\n' + color.green('\n  ✔ Full details exported to cpu-info/cpu-info.json and cpu-info/cpu-info.html');
+        return output;
       }
 
-      // ── List files (needs text input for sub-directory) ─────────────
-      case '3': {
+      case 'memory-info': {
+        const info = gatherSystemInfo();
+        let output = showMemoryInfo(info);
+        const exportDir = path.join(fileOps.root, 'memory-info');
+        ensureDir(exportDir);
+        fs.writeFileSync(path.join(exportDir, 'memory-info.json'), JSON.stringify(info.memory, null, 2), 'utf8');
+        fs.writeFileSync(path.join(exportDir, 'memory-info.html'), renderInfoHtml('Memory Info', info.memory), 'utf8');
+        output += '\n' + color.green('\n  ✔ Full details exported to memory-info/memory-info.json and memory-info/memory-info.html');
+        return output;
+      }
+
+      case 'disk-info': {
+        const disks = gatherDiskInfo();
+        let output = showDiskInfo(disks);
+        const exportDir = path.join(fileOps.root, 'disk-info');
+        ensureDir(exportDir);
+        fs.writeFileSync(path.join(exportDir, 'disk-info.json'), JSON.stringify(disks, null, 2), 'utf8');
+        fs.writeFileSync(path.join(exportDir, 'disk-info.html'), renderInfoHtml('Disk Info', disks), 'utf8');
+        output += '\n' + color.green('\n  ✔ Full details exported to disk-info/disk-info.json and disk-info/disk-info.html');
+        return output;
+      }
+
+      case 'battery-info': {
+        const battery = gatherBatteryInfo();
+        let output = showBatteryInfo(battery);
+        const exportDir = path.join(fileOps.root, 'battery-info');
+        ensureDir(exportDir);
+        fs.writeFileSync(path.join(exportDir, 'battery-info.json'), JSON.stringify(battery, null, 2), 'utf8');
+        fs.writeFileSync(path.join(exportDir, 'battery-info.html'), renderInfoHtml('Battery Info', battery), 'utf8');
+        output += '\n' + color.green('\n  ✔ Full details exported to battery-info/battery-info.json and battery-info/battery-info.html');
+        return output;
+      }
+
+      case 'network':
+        return showNetwork();
+
+      case 'list': {
         const subDir = (await getTextInput('  Sub-directory to list [.]: ')) || '.';
         const entries = fileOps.list(subDir);
+        let output = '';
         if (entries.length === 0) {
-          console.log('  (empty directory)');
+          output = '  (empty directory)';
         } else {
-          console.log(`\n  Entries in "${subDir}":`);
+          output = `\n  Entries in "${subDir}":\n`;
           for (const e of entries) {
             const icon = e.type === 'directory' ? '📁' : '📄';
-            console.log(`    ${icon} ${e.name}  [${e.type}]`);
+            output += `    ${icon} ${e.name}  [${e.type}]\n`;
           }
         }
-        console.log();
-        break;
+        return output + '\n';
       }
 
-      // ── Show changelog ──────────────────────────────────────────────
-      case '4': {
+      case 'changelog': {
         const log = fileOps.getChangelog();
         if (log.length === 0) {
-          console.log('\n  (no actions recorded this session)\n');
-        } else {
-          console.log('\n  Session Changelog:');
-          console.log('  ' + '─'.repeat(60));
-          for (const entry of log) {
-            console.log(
-              `  [${entry.time}]  ${entry.action.toUpperCase().padEnd(7)}  ${entry.target}  — ${entry.detail}`
-            );
-          }
-          console.log('  ' + '─'.repeat(60));
-          console.log();
+          return '\n  (no actions recorded this session)\n';
         }
-        break;
+        let output = '\n  Session Changelog:\n';
+        output += '  ' + '─'.repeat(60) + '\n';
+        for (const entry of log) {
+          output += `  [${entry.time}]  ${entry.action.toUpperCase().padEnd(7)}  ${entry.target}  — ${entry.detail}\n`;
+        }
+        output += '  ' + '─'.repeat(60) + '\n';
+        return output;
       }
 
-      // ── Open Cross-Platform File Manager ────────────────────────────
-      case '5': {
+      case 'filemanager': {
+        const pName = getPlatformName();
+        // Clear screen, show intro, hand off to file manager
+        renderMenu(color.dim(`  Sandboxed CRUD file manager — supports all ${pName} commands`) + '\n\n', { rawFrame: true });
         const { startFileManager } = require('../../filemanager/index.js');
         await startFileManager();
-        // File manager closed its own rl; code below recreates ours
-        break;
+        return null; // no output — go straight to menu on return
       }
 
-      // ── Exit ────────────────────────────────────────────────────────
-      case '6': {
-        console.log(color.green('\n  Goodbye!\n'));
-        return false;
-      }
+      case 'exit':
+        renderMenu(color.green('\n  Goodbye!\n\n'), { rawFrame: true });
+        return null; // special: signals exit
     }
-
-    // Reset so next drawMenu doesn't try to clear action output
-    menuLineCount = 0;
-
-    // Restore keypress mode for menu
-    rl.close();
-    if (process.stdin.isTTY) process.stdin.setRawMode(true);
-    rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-    return true;
   }
 
-  // ── Arrow-key navigation loop ────────────────────────────────────────
+  // ── Arrow-key navigation loop (NO readline interface — raw stdin only) ─
   function keypressLoop() {
     return new Promise((resolve) => {
+      // Kill readline during keypress mode to prevent stdout resize interference
+      if (process.stdin._readlineInterface) {
+        process.stdin._readlineInterface.close();
+      }
       readline.emitKeypressEvents(process.stdin);
       if (process.stdin.isTTY) process.stdin.setRawMode(true);
 
-      drawMenu();
+      // Initial render
+      renderMenu();
+
+      // Recompute layout on terminal resize
+      const onResize = () => renderMenu();
+      process.stdout.on('resize', onResize);
 
       function onKeypress(str, key) {
         if (key.ctrl && key.name === 'c') {
           cleanup();
-          console.log(color.green('\n  Goodbye!\n'));
+          renderMenu(color.green('\n  Goodbye!\n\n'), { rawFrame: true });
           resolve(false);
           return;
         }
@@ -226,33 +614,52 @@ async function startInteractiveMenu({ dir }) {
 
         if (keyName === 'up' || str === 'k') {
           selected = (selected - 1 + MENU_ITEMS.length) % MENU_ITEMS.length;
-          drawMenu();
+          renderMenu();
         } else if (keyName === 'down' || str === 'j') {
           selected = (selected + 1) % MENU_ITEMS.length;
-          drawMenu();
+          renderMenu();
         } else if (keyName === 'return') {
           const chosen = MENU_ITEMS[selected].action;
           cleanup();
-          executeAction(chosen).then(resolve);
+          executeAction(chosen).then((output) => {
+            if (output === null) {
+              // exit or filemanager — resolve immediately
+              // (exit writes its own goodbye; filemanager handled internally)
+              if (chosen === 'exit') {
+                resolve(false);
+              } else {
+                // filemanager returned — re-enter keypress loop
+                resolve(true);
+              }
+            } else {
+              // Show action output, wait for dismiss key, then resolve
+              renderMenu(output);
+              if (process.stdin.isTTY) process.stdin.setRawMode(true);
+              const onDismiss = (str2, key2) => {
+                process.stdin.removeListener('keypress', onDismiss);
+                resolve(true);
+              };
+              process.stdin.on('keypress', onDismiss);
+            }
+          });
         } else if (str === 'q') {
           cleanup();
-          console.log(color.green('\n  Goodbye!\n'));
+          renderMenu(color.green('\n  Goodbye!\n\n'), { rawFrame: true });
           resolve(false);
         }
-        // All other keys (Tab, Escape, function keys, etc.) are ignored
       }
 
       function cleanup() {
         process.stdin.removeListener('keypress', onKeypress);
+        process.stdout.removeListener('resize', onResize);
         if (process.stdin.isTTY) process.stdin.setRawMode(false);
-        rl.close();
       }
 
       process.stdin.on('keypress', onKeypress);
     });
   }
 
-  // ── Outer loop: menu → action → menu ─────────────────────────────────
+  // ── Outer loop: menu → action → menu ─────────────────────────────
   let running = true;
   while (running) {
     const shouldContinue = await keypressLoop();
@@ -264,5 +671,4 @@ async function startInteractiveMenu({ dir }) {
   if (process.stdin.isTTY) process.stdin.setRawMode(false);
 }
 
-module.exports = { startInteractiveMenu, printSystemInfo };
-
+module.exports = { startInteractiveMenu, showOsInfo, showCpuInfo };

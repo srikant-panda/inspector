@@ -1,4 +1,7 @@
 const os = require('os');
+const fs = require('fs');
+const path = require('path');
+const { execSync } = require('child_process');
 
 /**
  * Wraps a function call in a try/catch so missing or unavailable OS data
@@ -97,7 +100,139 @@ function gatherSystemInfo() {
         : 'N/A';
     }, 'N/A'),
     env,
+    disk: safe(() => gatherDiskInfo(), 'N/A'),
+    battery: safe(() => gatherBatteryInfo(), 'N/A'),
   };
 }
 
-module.exports = { gatherSystemInfo };
+/**
+ * Gathers disk information in a cross-platform manner.
+ */
+function gatherDiskInfo() {
+  try {
+    const platform = os.platform();
+    if (platform === 'win32') {
+      const out = execSync('wmic logicaldisk get Caption,FreeSpace,Size', {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      const lines = out.trim().split('\r\n');
+      const disks = [];
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].trim().split(/\s+/);
+        if (parts.length >= 3) {
+          const drive = parts[0];
+          const freeBytes = parseInt(parts[1], 10);
+          const sizeBytes = parseInt(parts[2], 10);
+          if (!isNaN(freeBytes) && !isNaN(sizeBytes) && sizeBytes > 0) {
+            const totalGB = (sizeBytes / (1024 * 1024 * 1024)).toFixed(2);
+            const freeGB = (freeBytes / (1024 * 1024 * 1024)).toFixed(2);
+            const usedBytes = sizeBytes - freeBytes;
+            const usedGB = (usedBytes / (1024 * 1024 * 1024)).toFixed(2);
+            const usedPct = Number(((usedBytes / sizeBytes) * 100).toFixed(1));
+            disks.push({ drive, totalGB, usedGB, freeGB, usedPct });
+          }
+        }
+      }
+      return disks.length > 0 ? disks : 'N/A';
+    } else {
+      const out = execSync('df -h / 2>/dev/null || df -h', {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      const lines = out.trim().split('\n');
+      const disks = [];
+      for (let i = 1; i < lines.length; i++) {
+        const parts = lines[i].trim().split(/\s+/);
+        if (parts.length >= 5) {
+          const drive = parts[0];
+          const sizeStr = parts[1];
+          const usedStr = parts[2];
+          const freeStr = parts[3];
+          const usePctStr = parts[4];
+          const usePct = parseInt(usePctStr.replace('%', ''), 10);
+          const mount = parts[5] || '';
+          if (mount === '/' || drive.startsWith('/dev/')) {
+            disks.push({
+              drive: mount || drive,
+              totalGB: sizeStr,
+              usedGB: usedStr,
+              freeGB: freeStr,
+              usedPct: isNaN(usePct) ? 'N/A' : usePct,
+            });
+          }
+        }
+      }
+      return disks.length > 0 ? disks : 'N/A';
+    }
+  } catch (err) {
+    return 'N/A';
+  }
+}
+
+/**
+ * Gathers battery percentage and charging status in a cross-platform manner.
+ */
+function gatherBatteryInfo() {
+  try {
+    const platform = os.platform();
+    if (platform === 'win32') {
+      const out = execSync('wmic path Win32_Battery get EstimatedChargeRemaining,BatteryStatus', {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      const lines = out.trim().split('\r\n');
+      if (lines.length >= 2) {
+        const parts = lines[1].trim().split(/\s+/);
+        if (parts.length >= 2) {
+          const statusVal = parseInt(parts[0], 10);
+          const percent = parseInt(parts[1], 10);
+          let status = 'Unknown';
+          if (statusVal === 1) status = 'Discharging';
+          else if (statusVal === 2) status = 'On AC Power';
+          else if (statusVal === 3) status = 'Fully Charged';
+          else if (statusVal >= 6 && statusVal <= 9) status = 'Charging';
+          return { percent, status };
+        }
+      }
+      return 'N/A';
+    } else if (platform === 'darwin') {
+      const out = execSync('pmset -g batt', {
+        encoding: 'utf8',
+        stdio: ['pipe', 'pipe', 'ignore'],
+      });
+      const match = out.match(/(\d+)%;\s+(\w+);/);
+      if (match) {
+        const percent = parseInt(match[1], 10);
+        const statusRaw = match[2].toLowerCase();
+        let status = 'Unknown';
+        if (statusRaw === 'charging') status = 'Charging';
+        else if (statusRaw === 'discharging') status = 'Discharging';
+        else if (statusRaw === 'charged' || statusRaw === 'finishing charge') status = 'Fully Charged';
+        return { percent, status };
+      }
+      return 'N/A';
+    } else if (platform === 'linux') {
+      const powerSupplyDir = '/sys/class/power_supply';
+      if (fs.existsSync(powerSupplyDir)) {
+        const dirs = fs.readdirSync(powerSupplyDir);
+        const batDir = dirs.find(d => d.startsWith('BAT'));
+        if (batDir) {
+          const capacityPath = path.join(powerSupplyDir, batDir, 'capacity');
+          const statusPath = path.join(powerSupplyDir, batDir, 'status');
+          if (fs.existsSync(capacityPath) && fs.existsSync(statusPath)) {
+            const percent = parseInt(fs.readFileSync(capacityPath, 'utf8').trim(), 10);
+            const status = fs.readFileSync(statusPath, 'utf8').trim();
+            return { percent, status };
+          }
+        }
+      }
+      return 'N/A';
+    }
+    return 'N/A';
+  } catch (err) {
+    return 'N/A';
+  }
+}
+
+module.exports = { gatherSystemInfo, gatherDiskInfo, gatherBatteryInfo };
