@@ -463,8 +463,9 @@ async function startInteractiveMenu({ dir }) {
         frame = actionOutput + '\n\n' + color.dim('  Press any key to return to menu...') + '\n';
       }
     } else {
-      // Build the menu frame
+      // Build the menu frame responsively based on terminal size
       const cols = process.stdout.columns || 80;
+      const rows = process.stdout.rows || 24;
       const isWide = cols >= 115;
       const previewLines = getDynamicPreview(MENU_ITEMS[selected].action);
 
@@ -473,6 +474,9 @@ async function startInteractiveMenu({ dir }) {
       headerLines.push(`  ${color.bold('↑/↓ or j/k · Enter to select · q to quit')}`);
       headerLines.push('');
 
+      // Avoid double spacing menu items on short terminal windows to prevent overflow
+      const useSpacing = rows >= 25;
+
       const menuLines = [];
       for (let i = 0; i < MENU_ITEMS.length; i++) {
         if (i === selected) {
@@ -480,14 +484,10 @@ async function startInteractiveMenu({ dir }) {
         } else {
           menuLines.push(`    ${MENU_ITEMS[i].label}`);
         }
-        if (i < MENU_ITEMS.length - 1) {
-          menuLines.push(''); // add empty line to increase height/spacing of menu
+        if (useSpacing && i < MENU_ITEMS.length - 1) {
+          menuLines.push('');
         }
       }
-
-      const borderedPreview = previewLines.map(l =>
-        l ? color.dim('│ ') + l : color.dim('│')
-      );
 
       frame = '';
       for (const line of headerLines) {
@@ -496,6 +496,14 @@ async function startInteractiveMenu({ dir }) {
 
       if (isWide) {
         const menuColWidth = 38;
+        // Calculate max preview height based on available screen rows
+        const maxPreviewHeight = Math.max(5, rows - headerLines.length - 2);
+        const slicedPreview = previewLines.slice(0, maxPreviewHeight);
+        
+        const borderedPreview = slicedPreview.map(l =>
+          l ? color.dim('│ ') + l : color.dim('│')
+        );
+
         const maxRows = Math.max(menuLines.length, borderedPreview.length);
         for (let i = 0; i < maxRows; i++) {
           const left = padVisible(menuLines[i] || '', menuColWidth);
@@ -506,9 +514,19 @@ async function startInteractiveMenu({ dir }) {
         for (const line of menuLines) {
           frame += line + '\n';
         }
-        frame += '\n';
-        for (const line of borderedPreview) {
-          frame += '  ' + line + '\n';
+        
+        // Only show preview if there is sufficient vertical space remaining
+        const usedHeight = headerLines.length + menuLines.length + 2;
+        const maxPreviewHeight = rows - usedHeight;
+        if (maxPreviewHeight >= 4) {
+          frame += '\n';
+          const slicedPreview = previewLines.slice(0, maxPreviewHeight);
+          const borderedPreview = slicedPreview.map(l =>
+            l ? color.dim('│ ') + l : color.dim('│')
+          );
+          for (const line of borderedPreview) {
+            frame += '  ' + line + '\n';
+          }
         }
       }
     }
@@ -538,7 +556,7 @@ async function startInteractiveMenu({ dir }) {
   async function executeAction(action) {
     switch (action) {
       case 'os-info': {
-        const info = gatherSystemInfo();
+        const info = gatherSystemInfo({ includeHeavy: true });
         let output = showOsInfo(info);
         
         const uptimeStr = formatUptime(info.uptimeSeconds);
@@ -940,8 +958,8 @@ async function startInteractiveMenu({ dir }) {
   // ── Scrollable Output Viewer (allows mouse/touchpad scrolling inside action output) ──
   function viewScrollableOutput(output) {
     return new Promise((resolve) => {
-      // Re-enable alternate scroll mode so mouse/touchpad scroll sends ArrowUp/ArrowDown
-      process.stdout.write('\x1b[?1007h');
+      // Disable mouse tracking and re-enable alternate scroll mode so mouse/touchpad scroll sends ArrowUp/ArrowDown
+      process.stdout.write('\x1b[?1000l\x1b[?1007h');
       
       const lines = output.split('\n');
       let scrollOffset = 0;
@@ -993,7 +1011,8 @@ async function startInteractiveMenu({ dir }) {
       if (process.stdin.isTTY) process.stdin.setRawMode(true);
 
       function onScrollKeypress(str, key) {
-        const keyName = key ? (key.name || '') : '';
+        if (!key) return; // Ignore unrecognized sequences
+        const keyName = key.name || '';
 
         if (keyName === 'up' || str === 'k') {
           if (scrollOffset > 0) {
@@ -1031,6 +1050,9 @@ async function startInteractiveMenu({ dir }) {
       readline.emitKeypressEvents(process.stdin);
       if (process.stdin.isTTY) process.stdin.setRawMode(true);
 
+      // Enable mouse tracking to prevent scroll-to-arrow translation on editors like VS Code
+      process.stdout.write('\x1b[?1000h');
+
       // Initial render
       renderMenu();
 
@@ -1039,6 +1061,9 @@ async function startInteractiveMenu({ dir }) {
       process.stdout.on('resize', onResize);
 
       function onKeypress(str, key) {
+        if (!key) return; // Ignore any mouse reporting events
+        if (str && (str.startsWith('\x1b[M') || str.startsWith('\x1b[<'))) return;
+
         if (key.ctrl && key.name === 'c') {
           cleanup();
           process.stdout.write('\x1b[?1007h\x1b[?25h\x1b[?1049l');
@@ -1084,6 +1109,8 @@ async function startInteractiveMenu({ dir }) {
       }
 
       function cleanup() {
+        // Disable mouse tracking
+        process.stdout.write('\x1b[?1000l');
         process.stdin.removeListener('keypress', onKeypress);
         process.stdout.removeListener('resize', onResize);
         if (process.stdin.isTTY) process.stdin.setRawMode(false);

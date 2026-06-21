@@ -45,7 +45,8 @@ const ENV_WHITELIST = [
  *
  * @returns {object} System information snapshot
  */
-function gatherSystemInfo() {
+function gatherSystemInfo(options = {}) {
+  const { includeHeavy = false } = options;
   // CPU — handle the edge case where os.cpus() returns an empty array
   const cpus = safe(() => os.cpus(), []);
   const cpuInfo = Array.isArray(cpus) && cpus.length > 0
@@ -100,8 +101,8 @@ function gatherSystemInfo() {
         : 'N/A';
     }, 'N/A'),
     env,
-    disk: safe(() => gatherDiskInfo(), 'N/A'),
-    battery: safe(() => gatherBatteryInfo(), 'N/A'),
+    disk: includeHeavy ? safe(() => gatherDiskInfo(), 'N/A') : 'N/A',
+    battery: includeHeavy ? safe(() => gatherBatteryInfo(), 'N/A') : 'N/A',
   };
 }
 

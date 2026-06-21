@@ -45,7 +45,7 @@ async function main() {
 
   // ── One-shot: info ──────────────────────────────────────────────────────
   if (opts.command === 'info') {
-    const info = gatherSystemInfo();
+    const info = gatherSystemInfo({ includeHeavy: true });
 
     if (opts.json) {
       console.log(JSON.stringify(info, null, 2));
