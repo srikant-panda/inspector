@@ -83,12 +83,19 @@ function gatherSystemInfo() {
     uptimeSeconds: safe(() => os.uptime()),
     homedir:       safe(() => os.homedir()),
     cwd:           safe(() => process.cwd()),
+    shell:         safe(() => process.env.SHELL || 'N/A'),
     cpu:           cpuInfo,
     memory: {
       totalMB,
       freeMB,
       usedPercent,
     },
+    loadAvg: safe(() => {
+      const avg = os.loadavg();
+      return avg.length >= 3
+        ? [Number(avg[0].toFixed(2)), Number(avg[1].toFixed(2)), Number(avg[2].toFixed(2))]
+        : 'N/A';
+    }, 'N/A'),
     env,
   };
 }

@@ -69,6 +69,26 @@ function getPathIndicator(defaultPath) {
   }
 }
 
+// ── Command aliases: Windows-style names map to canonical Unix commands ───
+const ALIASES = {
+  dir: 'ls', type: 'cat', copy: 'cp', move: 'mv',
+  del: 'rm', erase: 'rm', rd: 'rm', rmdir: 'rm',
+  ren: 'mv', rename: 'mv', md: 'mkdir', clear: 'cls',
+};
+
+/**
+ * Normalizes a single flag token so both Unix (`-a`) and Windows (`/a`)
+ * styles resolve to the same internal form.
+ */
+function normalizeFlag(flag) {
+  if (flag === '/a') return '-a';
+  if (flag === '/s') return '-rf';
+  if (flag === '/q') return null; // quiet — accepted, no-op
+  if (flag === '/p') return '-p';
+  if (flag === '/f') return '-f';
+  return flag;
+}
+
 /**
  * Main interactive shell loop for the File Manager.
  */
@@ -76,7 +96,8 @@ async function startFileManager() {
   console.log(color.bold(color.green('\n ────────────────────────────────────────────────────────')));
   console.log(color.bold(color.green(' │            Cross-Platform File Manager (JS)          │')));
   console.log(color.bold(color.green(' ────────────────────────────────────────────────────────')));
-  console.log(color.cyan('  Commands: cd, ls, pwd, mkdir, touch, rm, cp, mv, exit\n'));
+  console.log(color.cyan('  Unix:  cd, ls, pwd, mkdir, touch, cat, rm, cp, mv, cls, exit'));
+  console.log(color.cyan('  Win:   dir, md, type, del, copy, move, ren, rmdir /s, clear\n'));
 
   // Get cross-platform homedir (supports Linux, Windows, macOS)
   const default_path = os.homedir();
@@ -107,7 +128,16 @@ async function startFileManager() {
     const args = parseCommand(line.trim());
     if (args.length === 0) continue;
 
-    const cmd = args[0];
+    // Case-insensitive command dispatch — only the verb is lowercased, not paths
+    const rawCmd = args[0].toLowerCase();
+    const cmd = ALIASES[rawCmd] || rawCmd;
+
+    // Normalize flags in-place so /a → -a, /s → -rf, /q → stripped
+    const normalizedArgs = [args[0]];
+    for (let i = 1; i < args.length; i++) {
+      const f = normalizeFlag(args[i]);
+      if (f !== null) normalizedArgs.push(f);
+    }
 
     // exit command to return to main menu
     if (cmd === 'exit' || cmd === 'quit') {
@@ -155,11 +185,11 @@ async function startFileManager() {
 
       const options = [];
       const positional = [];
-      for (let i = 1; i < args.length; i++) {
-        if (args[i].startsWith('-')) {
-          options.push(args[i]);
+      for (let i = 1; i < normalizedArgs.length; i++) {
+        if (normalizedArgs[i].startsWith('-')) {
+          options.push(normalizedArgs[i]);
         } else {
-          positional.push(args[i]);
+          positional.push(normalizedArgs[i]);
         }
       }
 
@@ -221,10 +251,49 @@ async function startFileManager() {
     else if (cmd === 'pwd') {
       console.log(color.cyan(process.cwd()));
     } 
-    // 4. mkdir [-p] [directories...]
+    // 4. cat <file>  /  type <file>
+    else if (cmd === 'cat') {
+      const targets = normalizedArgs.slice(1);
+      if (targets.length === 0) {
+        console.log(color.red('cat: missing operand'));
+      } else {
+        for (const origTarget of targets) {
+          let target = origTarget;
+          if (target.startsWith('~/') || target.startsWith('~\\')) {
+            target = path.join(default_path, target.slice(2));
+          } else if (target === '~') {
+            target = default_path;
+          }
+          try {
+            if (!fs.existsSync(target)) {
+              console.log(color.red(`cat: ${origTarget}: No such file or directory`));
+              continue;
+            }
+            const stat = fs.statSync(target);
+            if (stat.isDirectory()) {
+              console.log(color.red(`cat: ${origTarget}: Is a directory`));
+              continue;
+            }
+            const content = fs.readFileSync(target, 'utf8');
+            process.stdout.write(content);
+            // Ensure trailing newline for clean prompt return
+            if (content.length > 0 && !content.endsWith('\n')) {
+              process.stdout.write('\n');
+            }
+          } catch (err) {
+            if (err.code === 'EACCES') {
+              console.log(color.red('Permission denied. This file requires administrator/root access.'));
+            } else {
+              console.log(color.red(`cat: ${err.message}`));
+            }
+          }
+        }
+      }
+    } 
+    // 5. mkdir [-p] [directories...]  /  md
     else if (cmd === 'mkdir') {
-      const hasP = args.includes('-p');
-      const targets = args.slice(1).filter(a => a !== '-p');
+      const hasP = normalizedArgs.includes('-p');
+      const targets = normalizedArgs.slice(1).filter(a => a !== '-p');
 
       if (targets.length === 0) {
         console.log(color.red('mkdir: missing operand'));
@@ -251,10 +320,10 @@ async function startFileManager() {
         }
       }
     } 
-    // 5. touch [-f] [files...]
+    // 6. touch [-f] [files...]
     else if (cmd === 'touch') {
-      const hasF = args.includes('-f');
-      const targets = args.slice(1).filter(a => a !== '-f');
+      const hasF = normalizedArgs.includes('-f');
+      const targets = normalizedArgs.slice(1).filter(a => a !== '-f');
 
       if (targets.length === 0) {
         console.log(color.red('touch: missing operand'));
@@ -288,12 +357,12 @@ async function startFileManager() {
         }
       }
     } 
-    // 6. rm [-r] [-rf] [targets...]
+    // 7. rm [-r] [-rf] [targets...]  /  del, erase, rmdir, rd
     else if (cmd === 'rm') {
-      const hasR = args.includes('-r');
-      const hasRF = args.includes('-rf');
+      const hasR = normalizedArgs.includes('-r');
+      const hasRF = normalizedArgs.includes('-rf');
       const isRecursive = hasR || hasRF;
-      const targets = args.slice(1).filter(a => a !== '-r' && a !== '-rf' && a !== '-f');
+      const targets = normalizedArgs.slice(1).filter(a => a !== '-r' && a !== '-rf' && a !== '-f');
 
       if (targets.length === 0) {
         console.log(color.red('rm: missing operand'));
@@ -330,9 +399,9 @@ async function startFileManager() {
         }
       }
     } 
-    // 7. cp [src] [dst]
+    // 8. cp [src] [dst]  /  copy
     else if (cmd === 'cp') {
-      const targets = args.slice(1);
+      const targets = normalizedArgs.slice(1);
       if (targets.length < 2) {
         console.log(color.red('cp: missing source or destination operand'));
       } else {
@@ -358,9 +427,9 @@ async function startFileManager() {
         }
       }
     } 
-    // 8. mv [src] [dst]
+    // 9. mv [src] [dst]  /  move, ren, rename
     else if (cmd === 'mv') {
-      const targets = args.slice(1);
+      const targets = normalizedArgs.slice(1);
       if (targets.length < 2) {
         console.log(color.red('mv: missing source or destination operand'));
       } else {
@@ -390,8 +459,12 @@ async function startFileManager() {
           }
         }
       }
+    } 
+    // 10. cls / clear — clear terminal screen
+    else if (cmd === 'cls') {
+      process.stdout.write('\x1b[2J\x1b[H');
     } else {
-      console.log(color.red(`filemanager: ${cmd}: command not found`));
+      console.log(color.red(`filemanager: ${rawCmd}: command not found`));
     }
   }
 }

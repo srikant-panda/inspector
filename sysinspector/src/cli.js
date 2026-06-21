@@ -15,6 +15,7 @@ const color = {
   cyan: (str) => `\x1b[36m${str}\x1b[0m`,
   white: (str) => `\x1b[37m${str}\x1b[0m`,
   bold: (str) => `\x1b[1m${str}\x1b[0m`,
+  inverse: (str) => `\x1b[7m${str}\x1b[27m`,
 };
 
 
@@ -23,7 +24,7 @@ const color = {
  */
 function printSystemInfo(info) {
   console.log('\n╔══════════════════════════════════════════════════════════╗');
-  console.log('║  SysInspector — System Snapshot                         ║');
+  console.log('║  SysInspector — System Snapshot                          ║');
   console.log('╚══════════════════════════════════════════════════════════╝\n');
 
   console.log(`  Timestamp    : ${info.timestamp}`);
@@ -63,52 +64,80 @@ function printSystemInfo(info) {
  * @param {object} options
  * @param {string} options.dir – sandbox root directory
  */
-function startInteractiveMenu({ dir }) {
+async function startInteractiveMenu({ dir }) {
   const fileOps = new FileOps(dir);
 
-  let rl = readline.createInterface({
-    input:  process.stdin,
-    output: process.stdout,
-  });
+  // ── Menu items ─────────────────────────────────────────────────────────
+  const MENU_ITEMS = [
+    { label: 'Show system info (console)',       action: '1' },
+    { label: 'Export system info as JSON file',   action: '2' },
+    { label: 'List files in sandbox directory',   action: '3' },
+    { label: 'Show session changelog',            action: '4' },
+    { label: 'Open Cross-Platform File Manager',  action: '5' },
+    { label: 'Exit',                              action: '6' },
+  ];
 
-  let ask = (question) => new Promise((resolve) => rl.question(question, resolve));
+  let selected = 0;
+  let menuLineCount = 0;
+  let rl = readline.createInterface({ input: process.stdin, output: process.stdout });
 
-  const MENU = `
-┌───────────────────────────────────────────┐
-│  SysInspector  — Interactive Menu         │
-├───────────────────────────────────────────┤
-│  1) Show system info (console)            │
-│  2) Export system info as JSON file       │
-│  3) List files in sandbox directory       │
-│  4) Create a new file                     │
-│  5) Read a file                           │
-│  6) Update (overwrite) a file  [confirm]  │
-│  7) Delete a file              [confirm]  │
-│  8) Show session changelog                │
-│  9) Open Cross-Platform File Manager      │
-│  0) Exit                                  │
-└───────────────────────────────────────────┘`;
+  // ── Draw menu (redraws in-place via ANSI escape) ─────────────────────
+  function drawMenu() {
+    if (menuLineCount > 0) {
+      process.stdout.write(`\x1b[${menuLineCount}A\x1b[J`);
+    }
+    let out = '';
+    let lines = 0;
+    out += `  Sandbox root: ${color.cyan(fileOps.root)}\n`;
+    lines++;
+    out += `  ${color.bold('↑/↓ or j/k to navigate · Enter to select · q to quit')}\n`;
+    lines++;
+    for (let i = 0; i < MENU_ITEMS.length; i++) {
+      const item = MENU_ITEMS[i];
+      if (i === selected) {
+        out += color.inverse(color.cyan(`  ➤ ${item.label}           `)) + '\n';
+      } else {
+        out += `    ${item.label}\n`;
+      }
+      lines++;
+    }
+    process.stdout.write(out);
+    menuLineCount = lines;
+  }
 
-  async function handleChoice(choice) {
-    switch (choice.trim()) {
+  // ── Helper: get text input with raw-mode toggling ────────────────────
+  async function getTextInput(prompt) {
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
+    rl.close();
+    rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    const askQ = (q) => new Promise((r) => rl.question(q, r));
+    const result = await askQ(prompt);
+    rl.close();
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+    rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    return result;
+  }
 
-      // ── Show system info ─────────────────────────────────────────────
+  // ── Action dispatcher ─────────────────────────────────────────────────
+  async function executeAction(action) {
+    console.log();
+
+    switch (action) {
+      // ── Show system info ────────────────────────────────────────────
       case '1': {
         const info = gatherSystemInfo();
         printSystemInfo(info);
         break;
       }
 
-      // ── Export system info as JSON ────────────────────────────────────
+      // ── Export system info as JSON ──────────────────────────────────
       case '2': {
-        const info     = gatherSystemInfo();
+        const info = gatherSystemInfo();
         const fileName = `sysinfo-${Date.now()}.json`;
-        // Write to sandbox root via FileOps (counts as a create)
         try {
           fileOps.create(fileName, JSON.stringify(info, null, 2));
           console.log(`\n  ✔ Exported to ${path.join(fileOps.root, fileName)}`);
         } catch (err) {
-          // FileOps.create would log to changelog; fallback: write directly
           const absPath = path.join(fileOps.root, fileName);
           fs.writeFileSync(absPath, JSON.stringify(info, null, 2), 'utf8');
           console.log(`\n  ✔ Exported to ${absPath}`);
@@ -116,9 +145,9 @@ function startInteractiveMenu({ dir }) {
         break;
       }
 
-      // ── List files ────────────────────────────────────────────────────
+      // ── List files (needs text input for sub-directory) ─────────────
       case '3': {
-        const subDir = (await ask('  Sub-directory to list [.]: ')) || '.';
+        const subDir = (await getTextInput('  Sub-directory to list [.]: ')) || '.';
         const entries = fileOps.list(subDir);
         if (entries.length === 0) {
           console.log('  (empty directory)');
@@ -133,62 +162,8 @@ function startInteractiveMenu({ dir }) {
         break;
       }
 
-      // ── Create file ───────────────────────────────────────────────────
+      // ── Show changelog ──────────────────────────────────────────────
       case '4': {
-        const relPath = await ask('  File path (relative to sandbox): ');
-        if (!relPath) { console.log('  Cancelled.\n'); break; }
-        const content = await ask('  Content: ');
-        fileOps.create(relPath, content);
-        console.log(`  ✔ Created: ${relPath}\n`);
-        break;
-      }
-
-      // ── Read file ─────────────────────────────────────────────────────
-      case '5': {
-        const relPath = await ask('  File path (relative to sandbox): ');
-        if (!relPath) { console.log('  Cancelled.\n'); break; }
-        const content = fileOps.read(relPath);
-        console.log(`\n  ─── ${relPath} ───`);
-        console.log(content);
-        console.log(`  ─── end ───\n`);
-        break;
-      }
-
-      // ── Update (overwrite) file — requires typed YES ─────────────────
-      case '6': {
-        const relPath = await ask('  File path (relative to sandbox): ');
-        if (!relPath) { console.log('  Cancelled.\n'); break; }
-        const newContent = await ask('  New content: ');
-        const confirmation = await ask(
-          `  ⚠  This will OVERWRITE "${relPath}". Type YES to confirm: `
-        );
-        if (confirmation !== 'YES') {
-          console.log('  Aborted — confirmation was not "YES".\n');
-          break;
-        }
-        fileOps.update(relPath, newContent, true);
-        console.log(`  ✔ Updated: ${relPath}\n`);
-        break;
-      }
-
-      // ── Delete file — requires typed YES ─────────────────────────────
-      case '7': {
-        const relPath = await ask('  File path (relative to sandbox): ');
-        if (!relPath) { console.log('  Cancelled.\n'); break; }
-        const confirmation = await ask(
-          `  ⚠  This will DELETE "${relPath}". Type YES to confirm: `
-        );
-        if (confirmation !== 'YES') {
-          console.log('  Aborted — confirmation was not "YES".\n');
-          break;
-        }
-        fileOps.delete(relPath, true);
-        console.log(`  ✔ Deleted: ${relPath}\n`);
-        break;
-      }
-
-      // ── Show changelog ────────────────────────────────────────────────
-      case '8': {
         const log = fileOps.getChangelog();
         if (log.length === 0) {
           console.log('\n  (no actions recorded this session)\n');
@@ -206,50 +181,87 @@ function startInteractiveMenu({ dir }) {
         break;
       }
 
-      // ── Open Cross-Platform File Manager ─────────────────────────────
-      case '9': {
-        rl.close();
+      // ── Open Cross-Platform File Manager ────────────────────────────
+      case '5': {
         const { startFileManager } = require('../../filemanager/index.js');
         await startFileManager();
-
-        // Recreate readline interface and ask helper
-        rl = readline.createInterface({
-          input:  process.stdin,
-          output: process.stdout,
-        });
-        ask = (question) => new Promise((resolve) => rl.question(question, resolve));
+        // File manager closed its own rl; code below recreates ours
         break;
       }
 
-      // ── Exit ──────────────────────────────────────────────────────────
-      case '0': {
+      // ── Exit ────────────────────────────────────────────────────────
+      case '6': {
         console.log(color.green('\n  Goodbye!\n'));
+        return false;
+      }
+    }
+
+    // Reset so next drawMenu doesn't try to clear action output
+    menuLineCount = 0;
+
+    // Restore keypress mode for menu
+    rl.close();
+    if (process.stdin.isTTY) process.stdin.setRawMode(true);
+    rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+    return true;
+  }
+
+  // ── Arrow-key navigation loop ────────────────────────────────────────
+  function keypressLoop() {
+    return new Promise((resolve) => {
+      readline.emitKeypressEvents(process.stdin);
+      if (process.stdin.isTTY) process.stdin.setRawMode(true);
+
+      drawMenu();
+
+      function onKeypress(str, key) {
+        if (key.ctrl && key.name === 'c') {
+          cleanup();
+          console.log(color.green('\n  Goodbye!\n'));
+          resolve(false);
+          return;
+        }
+
+        const keyName = key.name || '';
+
+        if (keyName === 'up' || str === 'k') {
+          selected = (selected - 1 + MENU_ITEMS.length) % MENU_ITEMS.length;
+          drawMenu();
+        } else if (keyName === 'down' || str === 'j') {
+          selected = (selected + 1) % MENU_ITEMS.length;
+          drawMenu();
+        } else if (keyName === 'return') {
+          const chosen = MENU_ITEMS[selected].action;
+          cleanup();
+          executeAction(chosen).then(resolve);
+        } else if (str === 'q') {
+          cleanup();
+          console.log(color.green('\n  Goodbye!\n'));
+          resolve(false);
+        }
+        // All other keys (Tab, Escape, function keys, etc.) are ignored
+      }
+
+      function cleanup() {
+        process.stdin.removeListener('keypress', onKeypress);
+        if (process.stdin.isTTY) process.stdin.setRawMode(false);
         rl.close();
-        return false; // signal loop exit
       }
 
-      default:
-        console.log(color.red('  Unknown option. Try again.\n'));
-    }
-    return true; // continue loop
+      process.stdin.on('keypress', onKeypress);
+    });
   }
 
-  async function loop() {
-    console.log(`\n  Sandbox root: ${color.cyan(fileOps.root)}\n`);
-    let running = true;
-    while (running) {
-      console.log(color.green(MENU));
-      const choice = await ask(color.bold('  Enter choice [0-9]: '));
-      try {
-        running = await handleChoice(choice);
-      } catch (err) {
-        // Surface the error but stay in the menu so the user can recover
-        console.log(`\n  ${color.red('Error:')} ${err.message}\n`);
-      }
-    }
+  // ── Outer loop: menu → action → menu ─────────────────────────────────
+  let running = true;
+  while (running) {
+    const shouldContinue = await keypressLoop();
+    if (!shouldContinue) break;
+    running = shouldContinue;
   }
 
-  return loop();
+  // Final cleanup — ensure terminal is never left in raw mode
+  if (process.stdin.isTTY) process.stdin.setRawMode(false);
 }
 
 module.exports = { startInteractiveMenu, printSystemInfo };
