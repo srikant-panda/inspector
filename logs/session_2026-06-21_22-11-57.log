@@ -1,0 +1,29 @@
+==================================================
+ SysInspector Session Log
+ Start Time:   6/21/2026, 10:11:57 PM
+ Sandbox Root: /home/hariomm/Projects/hackthon/inspector
+==================================================
+
+[2026-06-21 16:41:58] [PREVIEW ] CPU Info — Hovered option in main menu
+[2026-06-21 16:41:59] [PREVIEW ] Memory Info — Hovered option in main menu
+[2026-06-21 16:41:59] [PREVIEW ] Disk Info — Hovered option in main menu
+[2026-06-21 16:42:00] [PREVIEW ] Battery Info — Hovered option in main menu
+[2026-06-21 16:42:00] [PREVIEW ] Disk Info — Hovered option in main menu
+[2026-06-21 16:42:01] [PREVIEW ] Memory Info — Hovered option in main menu
+[2026-06-21 16:42:01] [PREVIEW ] CPU Info — Hovered option in main menu
+[2026-06-21 16:42:01] [PREVIEW ] OS Info — Hovered option in main menu
+[2026-06-21 16:42:05] [PREVIEW ] CPU Info — Hovered option in main menu
+[2026-06-21 16:42:06] [PREVIEW ] OS Info — Hovered option in main menu
+[2026-06-21 16:42:06] [PREVIEW ] Exit — Hovered option in main menu
+[2026-06-21 16:42:07] [PREVIEW ] Open File Manager — Hovered option in main menu
+[2026-06-21 16:42:07] [PREVIEW ] Show session changelog — Hovered option in main menu
+[2026-06-21 16:42:07] [PREVIEW ] List files in sandbox directory — Hovered option in main menu
+[2026-06-21 16:42:07] [LIST    ] . — Listed 14 entries
+[2026-06-21 16:42:07] [LIST    ] . — Listed 14 entries
+[2026-06-21 16:42:08] [PREVIEW ] Network — Hovered option in main menu
+[2026-06-21 16:42:08] [PREVIEW ] Battery Info — Hovered option in main menu
+[2026-06-21 16:42:08] [PREVIEW ] Disk Info — Hovered option in main menu
+[2026-06-21 16:42:09] [PREVIEW ] Memory Info — Hovered option in main menu
+[2026-06-21 16:42:09] [PREVIEW ] Disk Info — Hovered option in main menu
+[2026-06-21 16:42:10] [PREVIEW ] Battery Info — Hovered option in main menu
+[2026-06-21 16:42:11] [PREVIEW ] Network — Hovered option in main menu

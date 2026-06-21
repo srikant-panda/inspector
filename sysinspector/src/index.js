@@ -59,6 +59,7 @@ async function main() {
 
   // ── Interactive menu (default) ─────────────────────────────────────────
   await startInteractiveMenu({ dir: opts.dir });
+  process.exit(0);
 }
 
 main().catch((err) => {

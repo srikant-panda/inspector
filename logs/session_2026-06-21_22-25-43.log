@@ -1,0 +1,32 @@
+==================================================
+ SysInspector Session Log
+ Start Time:   6/21/2026, 10:25:43 PM
+ Sandbox Root: /home/hariomm/Projects/hackthon/inspector
+==================================================
+
+[2026-06-21 16:55:44] [PREVIEW ] CPU Info — Hovered option in main menu
+[2026-06-21 16:55:48] [PREVIEW ] Memory Info — Hovered option in main menu
+[2026-06-21 16:55:50] [PREVIEW ] Disk Info — Hovered option in main menu
+[2026-06-21 16:55:52] [PREVIEW ] Battery Info — Hovered option in main menu
+[2026-06-21 16:56:00] [PREVIEW ] Network — Hovered option in main menu
+[2026-06-21 16:56:02] [PREVIEW ] List files in sandbox directory — Hovered option in main menu
+[2026-06-21 16:56:02] [LIST    ] . — Listed 14 entries
+[2026-06-21 16:56:02] [LIST    ] . — Listed 14 entries
+[2026-06-21 16:56:02] [PREVIEW ] Show session changelog — Hovered option in main menu
+[2026-06-21 16:56:03] [PREVIEW ] Open File Manager — Hovered option in main menu
+[2026-06-21 16:56:03] [PREVIEW ] Exit — Hovered option in main menu
+[2026-06-21 16:56:04] [PREVIEW ] OS Info — Hovered option in main menu
+[2026-06-21 16:58:40] [PREVIEW ] CPU Info — Hovered option in main menu
+[2026-06-21 16:58:41] [PREVIEW ] Memory Info — Hovered option in main menu
+[2026-06-21 16:58:41] [PREVIEW ] Disk Info — Hovered option in main menu
+[2026-06-21 16:58:42] [PREVIEW ] Battery Info — Hovered option in main menu
+[2026-06-21 16:58:42] [PREVIEW ] Network — Hovered option in main menu
+[2026-06-21 16:58:43] [PREVIEW ] List files in sandbox directory — Hovered option in main menu
+[2026-06-21 16:58:43] [LIST    ] . — Listed 14 entries
+[2026-06-21 16:58:43] [LIST    ] . — Listed 14 entries
+[2026-06-21 16:58:43] [PREVIEW ] Show session changelog — Hovered option in main menu
+[2026-06-21 16:58:44] [PREVIEW ] Open File Manager — Hovered option in main menu
+[2026-06-21 16:58:44] [PREVIEW ] Exit — Hovered option in main menu
+[2026-06-21 16:58:45] [PREVIEW ] Open File Manager — Hovered option in main menu
+[2026-06-21 16:58:48] [EXPLORE ] Open File Manager — Entered detailed view
+[2026-06-21 16:58:48] [NAVIGATE] File Manager — Opened interactive File Manager

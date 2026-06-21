@@ -16,6 +16,38 @@ class FileOps {
   constructor(rootDir = process.cwd()) {
     this.root     = path.resolve(rootDir);
     this.changelog = [];
+
+    // Create 'logs' directory inside the sandbox root
+    this.logsDir = path.join(this.root, 'logs');
+    try {
+      if (!fs.existsSync(this.logsDir)) {
+        fs.mkdirSync(this.logsDir, { recursive: true });
+      }
+
+      // Generate a date-differentiated session log file name
+      const now = new Date();
+      const yyyy = now.getFullYear();
+      const mm = String(now.getMonth() + 1).padStart(2, '0');
+      const dd = String(now.getDate()).padStart(2, '0');
+      const hh = String(now.getHours()).padStart(2, '0');
+      const min = String(now.getMinutes()).padStart(2, '0');
+      const ss = String(now.getSeconds()).padStart(2, '0');
+      const dateName = `${yyyy}-${mm}-${dd}_${hh}-${min}-${ss}`;
+      this.logFile = path.join(this.logsDir, `session_${dateName}.log`);
+
+      // Write session log header
+      fs.writeFileSync(
+        this.logFile,
+        `==================================================\n` +
+        ` SysInspector Session Log\n` +
+        ` Start Time:   ${now.toLocaleString()}\n` +
+        ` Sandbox Root: ${this.root}\n` +
+        `==================================================\n\n`,
+        'utf8'
+      );
+    } catch {
+      this.logFile = null;
+    }
   }
 
   // ---------------------------------------------------------------------------
@@ -51,12 +83,28 @@ class FileOps {
    * Pushes a successful-action entry onto the in-memory changelog.
    */
   _log(action, target, detail) {
+    const timeStr = new Date().toISOString();
     this.changelog.push({
       action,
       target,
       detail,
-      time: new Date().toISOString(),
+      time: timeStr,
     });
+
+    if (this.logFile) {
+      try {
+        const timeFmt = timeStr.replace('T', ' ').slice(0, 19);
+        const logLine = `[${timeFmt}] [${action.toUpperCase().padEnd(8)}] ${target} — ${detail}\n`;
+        fs.appendFileSync(this.logFile, logLine, 'utf8');
+      } catch {}
+    }
+  }
+
+  /**
+   * Appends an action entry to the session changelog.
+   */
+  logAction(action, target, detail) {
+    this._log(action, target, detail);
   }
 
   // ---------------------------------------------------------------------------

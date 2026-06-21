@@ -1,0 +1,14 @@
+==================================================
+ SysInspector Session Log
+ Start Time:   6/21/2026, 11:01:31 PM
+ Sandbox Root: /home/hariomm/Projects/hackthon/inspector
+==================================================
+
+[2026-06-21 17:31:31] [PREVIEW ] Exit — Hovered option in main menu
+[2026-06-21 17:31:31] [PREVIEW ] Open File Manager — Hovered option in main menu
+[2026-06-21 17:31:32] [EXPLORE ] Open File Manager — Entered detailed view
+[2026-06-21 17:32:27] [NAVIGATE] File Manager — Opened interactive File Manager
+[2026-06-21 17:32:42] [NAVIGATE] File Manager — Exited interactive File Manager
+[2026-06-21 17:33:05] [PREVIEW ] Exit — Hovered option in main menu
+[2026-06-21 17:33:05] [EXPLORE ] Exit — Entered detailed view
+[2026-06-21 17:33:05] [EXIT    ] Inspector — Exited application session

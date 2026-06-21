@@ -1,0 +1,14 @@
+==================================================
+ SysInspector Session Log
+ Start Time:   6/21/2026, 10:19:51 PM
+ Sandbox Root: /home/hariomm/Projects/hackthon/inspector
+==================================================
+
+[2026-06-21 16:49:52] [PREVIEW ] CPU Info — Hovered option in main menu
+[2026-06-21 16:49:55] [PREVIEW ] Memory Info — Hovered option in main menu
+[2026-06-21 16:49:56] [PREVIEW ] Disk Info — Hovered option in main menu
+[2026-06-21 16:49:57] [PREVIEW ] Battery Info — Hovered option in main menu
+[2026-06-21 16:49:58] [PREVIEW ] Disk Info — Hovered option in main menu
+[2026-06-21 16:49:58] [PREVIEW ] Memory Info — Hovered option in main menu
+[2026-06-21 16:49:58] [PREVIEW ] CPU Info — Hovered option in main menu
+[2026-06-21 16:52:37] [EXIT    ] Inspector — Force exited application session (Ctrl+C)

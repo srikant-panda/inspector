@@ -3,17 +3,80 @@ const fs = require('fs');
 const path = require('path');
 const { execSync } = require('child_process');
 
-function execWithTimeout(cmd, timeoutMs = 6000) {
+const CACHE_TTL_MS = 5000;
+const commandStats = {};
+const execCache = {};
+let baselineDelay = null;
+
+function getBaselineDelay() {
+  if (baselineDelay !== null) {
+    return baselineDelay;
+  }
+  const start = Date.now();
   try {
-    return execSync(cmd, {
+    if (os.platform() === 'win32') {
+      execSync('powershell -Command "echo 1"', { stdio: 'ignore', timeout: 5000 });
+    } else {
+      execSync('echo 1', { stdio: 'ignore', timeout: 2000 });
+    }
+    baselineDelay = Date.now() - start;
+  } catch {
+    baselineDelay = os.platform() === 'win32' ? 1500 : 150;
+  }
+  if (baselineDelay < 10) {
+    baselineDelay = 10;
+  }
+  return baselineDelay;
+}
+
+function execWithTimeout(cmd, customTimeoutMs) {
+  const now = Date.now();
+  if (execCache[cmd] && (now - execCache[cmd].timestamp < CACHE_TTL_MS)) {
+    return execCache[cmd].result;
+  }
+
+  const cmdKey = cmd.split(/\s+/)[0] || cmd;
+  const baseline = getBaselineDelay();
+
+  // Dynamic boundaries based on the measured process baseline delay
+  const minTimeout = Math.max(3000, baseline * 3);
+  const maxTimeout = Math.max(15000, baseline * 12);
+
+  let timeoutMs;
+  if (customTimeoutMs !== undefined) {
+    timeoutMs = customTimeoutMs;
+  } else {
+    if (commandStats[cmdKey] && commandStats[cmdKey].count > 0) {
+      timeoutMs = Math.round(commandStats[cmdKey].avg * 4 + baseline * 2);
+    } else {
+      timeoutMs = Math.round(baseline * 8);
+    }
+    // Bound the timeout value dynamically
+    timeoutMs = Math.min(maxTimeout, Math.max(minTimeout, timeoutMs));
+  }
+
+  const startTime = Date.now();
+  try {
+    const result = execSync(cmd, {
       encoding: 'utf8',
       stdio: ['pipe', 'pipe', 'ignore'],
       timeout: timeoutMs,
       killSignal: 'SIGKILL'
     });
+    
+    const duration = Date.now() - startTime;
+    if (!commandStats[cmdKey]) {
+      commandStats[cmdKey] = { avg: duration, count: 1 };
+    } else {
+      commandStats[cmdKey].avg = (commandStats[cmdKey].avg * 0.7) + (duration * 0.3);
+      commandStats[cmdKey].count += 1;
+    }
+    execCache[cmd] = { result, timestamp: now };
+    return result;
   } catch (err) {
     if (err.code === 'ETIMEDOUT' || err.signal === 'SIGKILL' || (err.message && err.message.includes('timeout'))) {
-      throw new Error(`Command execution timed out after ${timeoutMs / 1000} seconds`);
+      const avgStr = commandStats[cmdKey] ? (commandStats[cmdKey].avg / 1000).toFixed(2) + 's' : 'N/A';
+      throw new Error(`Command execution timed out dynamically after ${(timeoutMs / 1000).toFixed(2)}s (baseline: ${(baseline / 1000).toFixed(2)}s, average: ${avgStr})`);
     }
     throw err;
   }
@@ -148,10 +211,28 @@ function gatherSystemInfo(options = {}) {
   };
 }
 
+const infoCache = {
+  disk: { data: null, timestamp: 0 },
+  battery: { data: null, timestamp: 0 }
+};
+
 /**
  * Gathers disk information in a cross-platform manner.
  */
 function gatherDiskInfo() {
+  const now = Date.now();
+  if (infoCache.disk.data !== null && (now - infoCache.disk.timestamp < CACHE_TTL_MS)) {
+    return infoCache.disk.data;
+  }
+  const result = _gatherDiskInfoRaw();
+  if (result !== 'N/A') {
+    infoCache.disk.data = result;
+    infoCache.disk.timestamp = now;
+  }
+  return result;
+}
+
+function _gatherDiskInfoRaw() {
   try {
     const platform = os.platform();
     if (platform === 'win32') {
@@ -242,6 +323,19 @@ function gatherDiskInfo() {
  * Gathers battery percentage and charging status in a cross-platform manner.
  */
 function gatherBatteryInfo() {
+  const now = Date.now();
+  if (infoCache.battery.data !== null && (now - infoCache.battery.timestamp < CACHE_TTL_MS)) {
+    return infoCache.battery.data;
+  }
+  const result = _gatherBatteryInfoRaw();
+  if (result !== 'N/A') {
+    infoCache.battery.data = result;
+    infoCache.battery.timestamp = now;
+  }
+  return result;
+}
+
+function _gatherBatteryInfoRaw() {
   try {
     const platform = os.platform();
     if (platform === 'win32') {
@@ -331,4 +425,4 @@ function gatherBatteryInfo() {
   }
 }
 
-module.exports = { gatherSystemInfo, gatherDiskInfo, gatherBatteryInfo };
+module.exports = { gatherSystemInfo, gatherDiskInfo, gatherBatteryInfo, execWithTimeout };

@@ -1,0 +1,11 @@
+==================================================
+ SysInspector Session Log
+ Start Time:   6/21/2026, 10:41:38 PM
+ Sandbox Root: /home/hariomm/Projects/hackthon/inspector
+==================================================
+
+[2026-06-21 17:11:38] [PREVIEW ] Exit — Hovered option in main menu
+[2026-06-21 17:11:39] [PREVIEW ] Open File Manager — Hovered option in main menu
+[2026-06-21 17:11:39] [EXPLORE ] Open File Manager — Entered detailed view
+[2026-06-21 17:11:39] [NAVIGATE] File Manager — Opened interactive File Manager
+[2026-06-21 17:14:54] [NAVIGATE] File Manager — Navigated via visual browser to: ~/Desktop/jsling

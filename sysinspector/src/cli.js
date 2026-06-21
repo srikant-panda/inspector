@@ -2,24 +2,7 @@ const readline = require('readline');
 const fs       = require('fs');
 const path     = require('path');
 const os       = require('os');
-const { execSync } = require('child_process');
-
-function execWithTimeout(cmd, timeoutMs = 6000) {
-  try {
-    return execSync(cmd, {
-      encoding: 'utf8',
-      stdio: ['pipe', 'pipe', 'ignore'],
-      timeout: timeoutMs,
-      killSignal: 'SIGKILL'
-    });
-  } catch (err) {
-    if (err.code === 'ETIMEDOUT' || err.signal === 'SIGKILL' || (err.message && err.message.includes('timeout'))) {
-      throw new Error(`Command execution timed out after ${timeoutMs / 1000} seconds`);
-    }
-    throw err;
-  }
-}
-const { gatherSystemInfo, gatherDiskInfo, gatherBatteryInfo } = require('./sysinfo');
+const { gatherSystemInfo, gatherDiskInfo, gatherBatteryInfo, execWithTimeout } = require('./sysinfo');
 const { FileOps }           = require('./fileOps');
 const { renderInfoHtml }    = require('./htmlExport');
 
@@ -38,14 +21,139 @@ const color = {
   dim: (str) => `\x1b[2m${str}\x1b[22m`,
 };
 
+function formatAction(action) {
+  const act = action.toUpperCase();
+  switch (action.toLowerCase()) {
+    case 'create':
+    case 'mkdir':
+    case 'touch':
+      return color.green(act.padEnd(8));
+    case 'read':
+    case 'cat':
+    case 'pwd':
+      return color.blue(act.padEnd(8));
+    case 'update':
+      return color.yellow(act.padEnd(8));
+    case 'delete':
+    case 'rm':
+      return color.red(act.padEnd(8));
+    case 'navigate':
+    case 'cd':
+      return color.cyan(act.padEnd(8));
+    case 'explore':
+      return color.magenta(act.padEnd(8));
+    case 'preview':
+      return color.dim(act.padEnd(8));
+    case 'exit':
+      return color.bold(color.red(act.padEnd(8)));
+    default:
+      return color.white(act.padEnd(8));
+  }
+}
+
 // ── ASCII logo for neofetch-style views ─────────────────────────────────
-const LOGO = [
-  '   ┌─┬─┬─┬─┐',
-  ' ┌─┤ · · · ├─┐',
-  ' ├─┤  ▓▓▓   ├─┤',
-  ' └─┤ · · · ├─┘',
-  '   └─┴─┴─┴─┘',
-];
+function getOsLogo() {
+  const platform = os.platform();
+  let logo = [];
+  if (platform === 'win32') {
+    logo = [
+      color.cyan('      _.-;;-._'),
+      color.cyan('\'-..-\'|   ||   |'),
+      color.cyan('\'-..-\'|_.-;;-._|'),
+      color.cyan('\'-..-\'|   ||   |'),
+      color.cyan('\'-..-\'|_.-\'\'-._|'),
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      ''
+    ];
+  } else if (platform === 'darwin') {
+    logo = [
+      color.white('                      .888'),
+      color.white('                    .8888\''),
+      color.white('                   .8888\''),
+      color.white('                   888\''),
+      color.white('                   8\''),
+      color.white('      .88888888888. .88888888888.'),
+      color.white('   .8888888888888888888888888888888.'),
+      color.white(' .8888888888888888888888888888888888.'),
+      color.white('&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\''),
+      color.white('&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&&\''),
+      color.white('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@:'),
+      color.white('@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@:'),
+      color.white('%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%.'),
+      color.white('`%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%.'),
+      color.white(' `00000000000000000000000000000000000\''),
+      color.white('  `000000000000000000000000000000000\''),
+      color.white('     `###########################\''),
+      color.white('         `#########\'\'########\'')
+    ];
+  } else if (platform === 'linux') {
+    // Return classic Linux Tux penguin logo (18 lines)
+    logo = [
+      color.white('            .-\"\"\"-.'),
+      color.white('           \'       \\\\'),
+      color.white('          |,.  ,-.  |'),
+      color.white('          |()L( ()| |'),
+      color.white('          |,\'  `\".| |'),
+      color.white('          |.___.\\\',| \\`'),
+      color.white('         .j \\`--\"\' \\`  \\`.'),
+      color.white('        / \'        \'   \\\\'),
+      color.white('       / /          \\`   \\`.'),
+      color.white('      / /            \\`    .'),
+      color.white('     / /              l   |'),
+      color.white('    . ,               |   |'),
+      color.white('    ,\"\\`.             .|   |'),
+      color.white(' _.\'   \\`\\`.          | \\`..-\'l'),
+      color.white('|       \\`.\\`,        |      \\`.'),
+      color.white('|         \\`.    __.j         )'),
+      color.white('|__        |--\"\"___|      ,-\''),
+      color.white('   \\`\"--...,+\"\"\"\"   \\`._,.--\'')
+    ];
+  } else {
+    // Fallback to original grid logo
+    logo = [
+      color.magenta('   ┌─┬─┬─┬─┐'),
+      color.magenta(' ┌─┤ · · · ├─┐'),
+      color.magenta(' ├─┤  ▓▓▓   ├─┤'),
+      color.magenta(' └─┤ · · · ├─┘'),
+      color.magenta('   └─┴─┴─┴─┘'),
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      '',
+      ''
+    ];
+  }
+
+  // Ensure exactly 18 lines and pad to exactly 38 visible characters
+  while (logo.length < 18) {
+    logo.push('');
+  }
+  if (logo.length > 18) {
+    logo = logo.slice(0, 18);
+  }
+  return logo.map(line => padVisible(line, 38));
+}
+
+const LOGO = getOsLogo();
 
 // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -80,6 +188,167 @@ function padVisible(str, width) {
   return diff > 0 ? str + ' '.repeat(diff) : str;
 }
 
+// ── Layout helpers & CPU Logos ───────────────────────────────────────────
+
+function getIntelLogo() {
+  const logo = [
+    '',
+    '          ┌──────────────────────┐',
+    '   ─────┤                      ├─────',
+    '   ─────┤                      ├─────',
+    '   ─────┤   .---------------.  ├─────',
+    '   ─────┤   |   _  _  _     |  ├─────',
+    '   ─────┤   |  | || || |    |  ├─────',
+    '   ─────┤   |  | || || |    |  ├─────',
+    '   ─────┤   |  | || || |__  |  ├─────',
+    '   ─────┤   |  |_||_||____| |  ├─────',
+    '   ─────┤   |               |  ├─────',
+    '   ─────┤   |   i n t e l   |  ├─────',
+    '   ─────┤   \'---------------\'  ├─────',
+    '   ─────┤                      ├─────',
+    '   ─────┤                      ├─────',
+    '   ─────┤                      ├─────',
+    '          └──────────────────────┘',
+    ''
+  ];
+  return logo.map(line => color.cyan(padVisible(line, 38)));
+}
+
+function getAmdLogo() {
+  const logo = [
+    '',
+    '          ┌──────────────────────┐',
+    '   ─────┤                      ├─────',
+    '   ─────┤                      ├─────',
+    '   ─────┤   .---------------.  ├─────',
+    '   ─────┤   |    \\     /    |  ├─────',
+    '   ─────┤   |     \\   /     |  ├─────',
+    '   ─────┤   |   ===\\ /===   |  ├─────',
+    '   ─────┤   |       X       |  ├─────',
+    '   ─────┤   |   ===/ \\===   |  ├─────',
+    '   ─────┤   |     /   \\     |  ├─────',
+    '   ─────┤   |    /     \\    |  ├─────',
+    '   ─────┤   |    a  m  d    |  ├─────',
+    '   ─────┤   \'---------------\'  ├─────',
+    '   ─────┤                      ├─────',
+    '   ─────┤                      ├─────',
+    '   ─────┤                      ├─────',
+    '          └──────────────────────┘'
+  ];
+  return logo.map(line => color.yellow(padVisible(line, 38)));
+}
+
+function getAppleSiliconLogo() {
+  const logo = [
+    '',
+    '          ┌──────────────────────┐',
+    '   ─────┤                      ├─────',
+    '   ─────┤                      ├─────',
+    '   ─────┤   .---------------.  ├─────',
+    '   ─────┤   |     __  __    |  ├─────',
+    '   ─────┤   |    |  \\/  |   |  ├─────',
+    '   ─────┤   |    | |\\/| |   |  ├─────',
+    '   ─────┤   |    | |  | |   |  ├─────',
+    '   ─────┤   |    |_|  |_|   |  ├─────',
+    '   ─────┤   |               |  ├─────',
+    '   ─────┤   |    APPLE M    |  ├─────',
+    '   ─────┤   |    SILICON    |  ├─────',
+    '   ─────┤   \'---------------\'  ├─────',
+    '   ─────┤                      ├─────',
+    '   ─────┤                      ├─────',
+    '   ─────┤                      ├─────',
+    '          └──────────────────────┘'
+  ];
+  return logo.map(line => color.white(padVisible(line, 38)));
+}
+
+function getDiskLogo() {
+  const logo = [
+    '',
+    '          .----------------.',
+    '         /                /|',
+    '        .----------------. |',
+    '        |   ==========   | |',
+    '        |  [ HDD / SSD ] | |',
+    '        |   ==========   |.',
+    '        .----------------.',
+    '        |   ==========   |',
+    '        |  [ DATABASE ]  |',
+    '        |   ==========   |',
+    '        .----------------.',
+    '        |   ==========   |',
+    '        |  [ STORAGE  ]  |',
+    '        |   ==========   |',
+    '        .----------------.',
+    '        |  disk storage  |',
+    '        \'----------------\''
+  ];
+  return logo.map(line => color.magenta(padVisible(line, 38)));
+}
+
+function getMemoryLogo() {
+  const logo = [
+    '',
+    '            .------------.',
+    '            |  [■]  [■]  |',
+    '            |  [■]  [■]  |',
+    '            |  [■]  [■]  |',
+    '            |  [■]  [■]  |',
+    '            |            |',
+    '            |   MEMORY   |',
+    '            |   MODULE   |',
+    '            |            |',
+    '            |  [■]  [■]  |',
+    '            |  [■]  [■]  |',
+    '            |  [■]  [■]  |',
+    '            |  [■]  [■]  |',
+    '            |            |',
+    '            |  ||||||||  |',
+    '            \'------------\'',
+    ''
+  ];
+  return logo.map(line => color.green(padVisible(line, 38)));
+}
+
+function getBatteryLogo() {
+  const logo = [
+    '',
+    '               .------.',
+    '               | [++] |',
+    '            .--+------+.--.',
+    '            |  ______  |',
+    '            | [██████] |',
+    '            | [██████] |',
+    '            | [██████] |',
+    '            | [██████] |',
+    '            | [██████] |',
+    '            | [      ] |',
+    '            | [      ] |',
+    '            |  ______  |',
+    '            |  B A T T |',
+    '            |  L I F E |',
+    '            \'----------\'',
+    '             `--------\'',
+    ''
+  ];
+  return logo.map(line => color.green(padVisible(line, 38)));
+}
+
+function renderLayout(logo, right) {
+  if (!logo || logo.length === 0) {
+    return right.map(line => '  ' + line).join('\n');
+  }
+  const logoWidth = Math.max(...logo.map(l => visibleLen(l)));
+  const maxRows = Math.max(logo.length, right.length);
+  const lines = [];
+  for (let i = 0; i < maxRows; i++) {
+    const logoPart = padVisible(logo[i] || '', logoWidth);
+    const rightPart = right[i] || '';
+    lines.push(`  ${logoPart}   ${rightPart}`);
+  }
+  return lines.join('\n');
+}
+
 // ── Neofetch-style view formatters ──────────────────────────────────────
 
 function showOsInfo(info) {
@@ -98,16 +367,11 @@ function showOsInfo(info) {
     `🐚 ${color.bold('Shell:')}     ${path.basename(info.shell !== 'N/A' ? info.shell : '')}`,
     `🟢 ${color.bold('Node.js:')}   ${info.nodeVersion}`,
     `🔑 ${color.bold('Env Vars:')}  ${Object.keys(info.env).length} captured (full list in export)`,
+    '',
+    color.dim('ℹ️  Press Enter for detailed view & JSON/HTML export'),
   ];
 
-  const lines = [];
-  const maxRows = Math.max(LOGO.length, right.length);
-  for (let i = 0; i < maxRows; i++) {
-    const logo = color.magenta(padVisible(LOGO[i] || '', 18));
-    const info = right[i] || '';
-    lines.push(`  ${logo}   ${info}`);
-  }
-  return lines.join('\n');
+  return renderLayout(LOGO, right);
 }
 
 function showCpuInfo(info) {
@@ -134,14 +398,20 @@ function showCpuInfo(info) {
     right.push(`📊 ${color.bold('Load Avg:')}     ${loadStr}`);
   }
 
-  const lines = [];
-  const maxRows = Math.max(LOGO.length, right.length);
-  for (let i = 0; i < maxRows; i++) {
-    const logo = color.magenta(padVisible(LOGO[i] || '', 18));
-    const detail = right[i] || '';
-    lines.push(`  ${logo}   ${detail}`);
+  right.push('');
+  right.push(color.dim('ℹ️  Press Enter for detailed view & JSON/HTML export'));
+
+  const model = (info.cpu.model || '').toLowerCase();
+  let cpuLogo = null;
+  if (model.includes('intel')) {
+    cpuLogo = getIntelLogo();
+  } else if (model.includes('amd')) {
+    cpuLogo = getAmdLogo();
+  } else if (model.includes('apple') || model.includes(' m1') || model.includes(' m2') || model.includes(' m3') || model.includes(' m4')) {
+    cpuLogo = getAppleSiliconLogo();
   }
-  return lines.join('\n');
+
+  return renderLayout(cpuLogo, right);
 }
 
 function showNetwork() {
@@ -257,14 +527,9 @@ function showDiskInfo(disks) {
     }
   }
 
-  const lines = [];
-  const maxRows = Math.max(LOGO.length, right.length);
-  for (let i = 0; i < maxRows; i++) {
-    const logo = color.magenta(padVisible(LOGO[i] || '', 18));
-    const detail = right[i] || '';
-    lines.push(`  ${logo}   ${detail}`);
-  }
-  return lines.join('\n');
+  right.push(color.dim('ℹ️  Press Enter for detailed view & JSON/HTML export'));
+
+  return renderLayout(getDiskLogo(), right);
 }
 
 function showMemoryInfo(info) {
@@ -281,16 +546,11 @@ function showMemoryInfo(info) {
     `🟢 ${color.bold('Free RAM:')}  ${info.memory.freeMB} MB (${freeGB} GB)`,
     `🔴 ${color.bold('Used RAM:')}  ${(info.memory.totalMB - info.memory.freeMB).toFixed(2)} MB (${usedGB} GB)`,
     `📊 ${color.bold('Usage:')}     ${typeof info.memory.usedPercent === 'number' ? makeProgressBar(info.memory.usedPercent, 20) : info.memory.usedPercent}`,
+    '',
+    color.dim('ℹ️  Press Enter for detailed view & JSON/HTML export'),
   ];
 
-  const lines = [];
-  const maxRows = Math.max(LOGO.length, right.length);
-  for (let i = 0; i < maxRows; i++) {
-    const logo = color.magenta(padVisible(LOGO[i] || '', 18));
-    const detail = right[i] || '';
-    lines.push(`  ${logo}   ${detail}`);
-  }
-  return lines.join('\n');
+  return renderLayout(getMemoryLogo(), right);
 }
 
 function showBatteryInfo(battery) {
@@ -309,14 +569,10 @@ function showBatteryInfo(battery) {
     right.push(`🏷️  ${color.bold('Status:')} ${battery.status}`);
   }
 
-  const lines = [];
-  const maxRows = Math.max(LOGO.length, right.length);
-  for (let i = 0; i < maxRows; i++) {
-    const logo = color.magenta(padVisible(LOGO[i] || '', 18));
-    const detail = right[i] || '';
-    lines.push(`  ${logo}   ${detail}`);
-  }
-  return lines.join('\n');
+  right.push('');
+  right.push(color.dim('ℹ️  Press Enter for detailed view & JSON/HTML export'));
+
+  return renderLayout(getBatteryLogo(), right);
 }
 
 // ── Export helper ────────────────────────────────────────────────────────
@@ -334,9 +590,30 @@ function ensureDir(dirPath) {
  * @param {string} options.dir – sandbox root directory
  */
 async function startInteractiveMenu({ dir }) {
-  // Enter alternate screen buffer, disable alternate scroll mode (no mouse/touchpad scrolling to arrows), & hide cursor for raw keypress navigation
-  process.stdout.write('\x1b[?1049h\x1b[?1007l\x1b[?25l');
-  const fileOps = new FileOps(dir);
+  const originalEmit = process.stdin.emit;
+  try {
+    process.stdin.emit = function(event, ...args) {
+      if (event === 'data') {
+        let data = args[0];
+        if (Buffer.isBuffer(data)) {
+          data = data.toString('utf8');
+        }
+        if (typeof data === 'string') {
+          const filtered = data
+            .replace(/\x1b\[M[\s\S]{3}/g, '')
+            .replace(/\x1b\[<[0-9;]+[Mm]/g, '');
+          if (filtered.length === 0) {
+            return;
+          }
+          args[0] = Buffer.from(filtered, 'utf8');
+        }
+      }
+      return originalEmit.apply(this, [event, ...args]);
+    };
+
+    // Enter alternate screen buffer, disable alternate scroll mode (no mouse/touchpad scrolling to arrows), & hide cursor for raw keypress navigation
+    process.stdout.write('\x1b[?1049h\x1b[?1007l\x1b[?25l');
+    const fileOps = new FileOps(dir);
 
   // ── Menu items ──────────────────────────────────────────────────────
   const platformName = getPlatformName();
@@ -391,6 +668,8 @@ async function startInteractiveMenu({ dir }) {
           const ipStr = ipv4 ? ipv4.address : 'N/A';
           lines.push(`  ${branch} ${color.green(name)} (${ipStr})`);
         }
+        lines.push('');
+        lines.push(color.dim('ℹ️  Press Enter for detailed view & JSON/HTML export'));
         return lines;
       }
       case 'list': {
@@ -425,7 +704,7 @@ async function startInteractiveMenu({ dir }) {
           const shown = log.slice(-limit);
           for (const entry of shown) {
             const timeStr = entry.time ? entry.time.slice(11, 19) : 'N/A';
-            lines.push(`  [${timeStr}] ${entry.action.toUpperCase()} - ${entry.target}`);
+            lines.push(`  [${color.dim(timeStr)}] ${formatAction(entry.action)} ${color.cyan(entry.target)}`);
           }
           if (log.length > limit) {
             lines.push(`  ... and ${log.length - limit} older actions`);
@@ -497,7 +776,7 @@ async function startInteractiveMenu({ dir }) {
       const previewLines = options.previewOverride || getDynamicPreview(MENU_ITEMS[selected].action);
 
       const headerLines = [];
-      headerLines.push(`  Sandbox root: ${color.cyan(fileOps.root)}`);
+      headerLines.push(`  Sandbox root: ${color.cyan(path.basename(fileOps.root) || fileOps.root)}`);
       headerLines.push(`  ${color.bold('↑/↓ or j/k · Enter to select · q to quit')}`);
       headerLines.push('');
 
@@ -981,11 +1260,12 @@ async function startInteractiveMenu({ dir }) {
           return '\n  (no actions recorded this session)\n';
         }
         let output = '\n  Session Changelog:\n';
-        output += '  ' + '─'.repeat(60) + '\n';
+        output += '  ' + '─'.repeat(70) + '\n';
         for (const entry of log) {
-          output += `  [${entry.time}]  ${entry.action.toUpperCase().padEnd(7)}  ${entry.target}  — ${entry.detail}\n`;
+          const timeStr = entry.time ? entry.time.replace('T', ' ').slice(0, 19) : 'N/A';
+          output += `  [${color.dim(timeStr)}]  ${formatAction(entry.action)}  ${color.bold(color.cyan(entry.target))}  — ${entry.detail}\n`;
         }
-        output += '  ' + '─'.repeat(60) + '\n';
+        output += '  ' + '─'.repeat(70) + '\n';
         return output;
       }
 
@@ -996,7 +1276,7 @@ async function startInteractiveMenu({ dir }) {
         // Clear screen, show intro, hand off to file manager
         renderMenu(color.dim(`  Sandboxed CRUD file manager — supports all ${pName} commands`) + '\n\n', { rawFrame: true });
         const { startFileManager } = require('../../filemanager/index.js');
-        await startFileManager();
+        await startFileManager(fileOps);
         // Hide cursor again when returning to menu navigation
         process.stdout.write('\x1b[?25l');
         return null; // no output — go straight to menu on return
@@ -1127,6 +1407,7 @@ async function startInteractiveMenu({ dir }) {
         if (str && (str.startsWith('\x1b[M') || str.startsWith('\x1b[<'))) return;
 
         if (key.ctrl && key.name === 'c') {
+          fileOps.logAction('exit', 'Inspector', 'Force exited application session (Ctrl+C)');
           cleanup();
           process.stdout.write('\x1b[?1007h\x1b[?25h\x1b[?1049l');
           process.stdout.write(color.green('\n  Goodbye!\n\n'));
@@ -1145,6 +1426,7 @@ async function startInteractiveMenu({ dir }) {
           } else {
             selected = (selected + 1) % MENU_ITEMS.length;
           }
+          fileOps.logAction('preview', MENU_ITEMS[selected].label, 'Hovered option in main menu');
 
           const isHeavy = MENU_ITEMS[selected].action === 'disk-info' || MENU_ITEMS[selected].action === 'battery-info';
           if (isHeavy) {
@@ -1173,6 +1455,7 @@ async function startInteractiveMenu({ dir }) {
           }, 50);
         } else if (keyName === 'return') {
           const chosen = MENU_ITEMS[selected].action;
+          fileOps.logAction('explore', MENU_ITEMS[selected].label, 'Entered detailed view');
           cleanup();
           
           // Render the loading screen
@@ -1183,6 +1466,7 @@ async function startInteractiveMenu({ dir }) {
             executeAction(chosen).then((output) => {
               if (output === null) {
                 if (chosen === 'exit') {
+                  fileOps.logAction('exit', 'Inspector', 'Exited application session');
                   resolve(false);
                 } else {
                   resolve(true);
@@ -1190,6 +1474,7 @@ async function startInteractiveMenu({ dir }) {
               } else {
                 // Show action output in a responsive scrollable view
                 viewScrollableOutput(output).then(() => {
+                  fileOps.logAction('navigate', 'Main Menu', 'Returned to main menu');
                   resolve(true);
                 });
               }
@@ -1198,11 +1483,13 @@ async function startInteractiveMenu({ dir }) {
               const errOutput = `\n  ❌ Error: Feature "${MENU_ITEMS[selected].label}" failed to load.\n\n` +
                                 `  Details: ${err.message || err}\n`;
               viewScrollableOutput(errOutput).then(() => {
+                fileOps.logAction('navigate', 'Main Menu', 'Returned to main menu (after error)');
                 resolve(true);
               });
             });
           }, 100);
         } else if (str === 'q') {
+          fileOps.logAction('exit', 'Inspector', 'Exited application session (menu quit key)');
           cleanup();
           process.stdout.write('\x1b[?1007h\x1b[?25h\x1b[?1049l');
           process.stdout.write(color.green('\n  Goodbye!\n\n'));
@@ -1222,16 +1509,18 @@ async function startInteractiveMenu({ dir }) {
     });
   }
 
-  // ── Outer loop: menu → action → menu ─────────────────────────────
-  let running = true;
-  while (running) {
-    const shouldContinue = await keypressLoop();
-    if (!shouldContinue) break;
-    running = shouldContinue;
+    // ── Outer loop: menu → action → menu ─────────────────────────────
+    let running = true;
+    while (running) {
+      const shouldContinue = await keypressLoop();
+      if (!shouldContinue) break;
+      running = shouldContinue;
+    }
+  } finally {
+    process.stdin.emit = originalEmit;
+    // Final cleanup — ensure terminal is never left in raw mode
+    if (process.stdin.isTTY) process.stdin.setRawMode(false);
   }
-
-  // Final cleanup — ensure terminal is never left in raw mode
-  if (process.stdin.isTTY) process.stdin.setRawMode(false);
 }
 
-module.exports = { startInteractiveMenu, showOsInfo, showCpuInfo };
+module.exports = { startInteractiveMenu, showOsInfo, showCpuInfo, showMemoryInfo, showDiskInfo, showBatteryInfo };
