@@ -104,18 +104,27 @@ function safe(fn, fallback = 'N/A') {
  * Only these env vars are considered safe to expose.
  * Anything outside this list (API keys, tokens, DB passwords …) is silently dropped.
  */
-const SAFE_ENV_KEYS = [
-  'USER',
-  'USERNAME',
-  'HOME',
-  'SHELL',
-  'LANG',
-  'PATH',
-  'TERM',
-  'PWD',
-  'EDITOR',
-  'NODE_ENV',
-];
+const SAFE_ENV_KEYS = os.platform() === 'win32'
+  ? [
+      'USERNAME',
+      'USERPROFILE',
+      'COMSPEC',
+      'PATH',
+      'TEMP',
+      'SYSTEMROOT',
+      'NODE_ENV',
+    ]
+  : [
+      'USER',
+      'HOME',
+      'SHELL',
+      'LANG',
+      'PATH',
+      'TERM',
+      'PWD',
+      'EDITOR',
+      'NODE_ENV',
+    ];
 
 const ENV_WHITELIST = SAFE_ENV_KEYS;
 

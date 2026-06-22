@@ -86,8 +86,8 @@ node sysinspector/src/index.js --dir /path/to/custom/sandbox
 ## Cross-Platform Notes
 
 ### Environment Variables on Windows
-When running Inspector on Windows (native, VirtualBox VM, or WSL via `cmd.exe`/PowerShell), the **Captured Environment Variables** table intentionally shows `N/A` for several entries such as `USER`, `SHELL`, `LANG`, `TERM`, and `PWD`. This is **expected behavior, not a bug**.
+When running Inspector, the **Captured Environment Variables** table is dynamically tailored to the host platform (Windows vs. Linux/macOS). It displays only the standard and relevant variables for the running OS, ensuring that variables that do not exist natively on a platform (such as Unix `USER` or `SHELL` on Windows) are not shown.
 
-These are Unix/Linux-standard variable names that Windows simply does not define. The tool uses a fixed security whitelist (`SAFE_ENV_KEYS` in `sysinfo.js`) and reads `process.env` directly — when a variable does not exist on the host OS, it gracefully falls back to `N/A`. Windows-native variables like `USERNAME` and `HOME` (mapped via `os.homedir()`) are captured correctly.
+If a genuine environment variable for the host platform is indeed missing or not set, it will show as `N/A`.
 
-See [docs/ERROR_HANDLING.md — Cross-Platform Environment Variable Behavior](docs/ERROR_HANDLING.md#cross-platform-environment-variable-behavior) for the full variable-by-variable breakdown.
+See [docs/ERROR_HANDLING.md — Cross-Platform Environment Variable Behavior](docs/ERROR_HANDLING.md#cross-platform-environment-variable-behavior) for the full variable-by-variable breakdown per platform.

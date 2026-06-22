@@ -59,25 +59,19 @@ In Node.js CLI keypress listeners, users pressing hotkeys or clicking/scrolling 
 
 ## Cross-Platform Environment Variable Behavior
 
-### Windows `N/A` Values Are Expected
-The `getEnvSnapshot()` function in `sysinfo.js` reads a curated whitelist of environment variable names (`SAFE_ENV_KEYS`). On Windows, several of these variables do not exist natively — the OS uses different names internally:
+### Platform-Oriented Environment Variable Selection
+The `getEnvSnapshot()` function in `sysinfo.js` dynamically selects the environment variable whitelist (`SAFE_ENV_KEYS`) based on the host platform (`os.platform()`). It filters out variables that do not natively exist or are irrelevant to the running operating system, preventing unnecessary `N/A` entries for non-native variables.
 
-| Whitelist Variable | Linux | Windows | Reason |
-| :--- | :--- | :--- | :--- |
-| `USER` | Set | `N/A` | Windows uses `USERNAME` instead |
-| `USERNAME` | Sometimes | Set | Windows-native variable |
-| `HOME` | `/home/user` | `C:\Users\<name>` | Node.js maps via `os.homedir()` |
-| `SHELL` | `/bin/bash` | `N/A` | Windows uses `ComSpec` (e.g. `cmd.exe`) |
-| `LANG` | `en_US.UTF-8` | `N/A` | Not a Windows OS concept |
-| `TERM` | `xterm-256color` | `N/A` | Windows terminals do not set this |
-| `PWD` | Current directory | `N/A` | Windows uses `CD` env var instead |
-| `PATH` | Set | Set | Universal across all platforms |
-| `EDITOR` | Sometimes | Rarely set | Platform-dependent |
-| `NODE_ENV` | If configured | If configured | Must be set manually by the user |
+If a genuine platform-native variable is not configured or is missing on the host system, it will show as `N/A` under **Captured Environment Variables**.
 
-This is **not a bug**. The code reads `process.env[key]` — which is truly cross-platform — and gracefully falls back to `'N/A'` when the variable does not exist on the host OS. The tool is reporting what is available, not requiring variables to exist. No platform-specific branching is needed because `process.env` already returns `undefined` naturally on Windows for non-existent variables, and the `safe()` fallback handles the rest.
+#### Whitelist Keys per Platform:
 
-> This behavior applies to all Windows environments — native installations, VirtualBox VMs, WSL (when running through `cmd.exe`/PowerShell), and CI runners.
+| Platform | Whitelist Variables | Description / Purpose |
+| :--- | :--- | :--- |
+| **Linux / macOS** | `USER`, `HOME`, `SHELL`, `LANG`, `PATH`, `TERM`, `PWD`, `EDITOR`, `NODE_ENV` | Standard Unix/POSIX environment setup. |
+| **Windows** | `USERNAME`, `USERPROFILE`, `COMSPEC`, `PATH`, `TEMP`, `SYSTEMROOT`, `NODE_ENV` | Standard Windows environment setup. |
+
+> This platform-oriented display applies to the CLI detailed OS view, as well as the JSON and HTML exports.
 
 ---
 
